@@ -1,0 +1,9 @@
+numpy
+scipy
+scikit-learn
+tslearn
+matplotlib
+pandas
+wfdb
+tensorflow
+tabulate
