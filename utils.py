@@ -12,13 +12,17 @@ from scipy.interpolate import interp1d
 #### ---- Global Parameters ---- ####
 path = "../ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
 # path = '~/projects/def-chenh/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/'
-sampling_rate=500
+sampling_rate=100
+diagnostics = np.array(['NORM', 'MI', 'STTC', 'CD', 'HYP'])
+
+def get_diagnostics():
+    return diagnostics
 
 def get_sr():
     return sampling_rate
 
 
-#### ---- Load Dataset ---- ####
+#### ---- Load PTB-XL Dataset ---- ####
 def aggregate_diagnostic(y_dic):
     agg_df = pd.read_csv(path+'scp_statements.csv', index_col=0)
     agg_df = agg_df[agg_df.diagnostic == 1]
@@ -60,6 +64,16 @@ def get_data(diagnostic, lead=None, holdout=False):
         return data[:n_records//2], data[n_records//2:]
     return data
 
+#### ---- Load Synthetic Dataset ---- ####
+def load_synthetic_dataset(diagnostic, lead):
+    data = np.load("synthetic_final.npy")
+    label = np.load("synthetic_final_labels.npy")
+
+    class_index = np.where(diagnostics == diagnostic)[0][0]
+    mask = (label[:, class_index] == 1)
+
+    return data[mask][:, lead, :]
+
 #### ---- ECG Data Processing ---- ####
 def get_first_n_beats(ecg_signal, n_beats):
     cleaned = nk.ecg_clean(ecg_signal, sampling_rate=sampling_rate, method="neurokit")
@@ -84,3 +98,12 @@ def trim_ecg(data, n_beats):
         trimmed.append(f(x_new))
 
     return np.array(trimmed)
+
+
+if __name__ == "__main__":
+    diagnostic = ["NORM"]
+    lead = 1
+    synth_all = load_synthetic_dataset(diagnostic, lead)
+    
+
+    

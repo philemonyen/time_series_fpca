@@ -1,3 +1,6 @@
 __pycache__/
 images/
+results/
 .DS_Store
+*.npy
+*.ipynb

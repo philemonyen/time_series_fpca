@@ -50,3 +50,7 @@ def fpca(fd, n_components):
     mean = fpca.mean_
     components = fpca.components_
     return mean, components, scores, var_ratio
+
+#--- Inverse FPCA ---- #
+def inverse_fpca(scores, components, mean, warping):
+    return (scores @ components + mean).transform(warping)
