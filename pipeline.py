@@ -1,77 +1,8 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import json
-from pathlib import Path
-from fpca import to_fd, basis_smoothing, elastic_registration, fpca
-from utils import get_data, trim_ecg, load_synthetic_dataset, get_sr, get_diagnostics
+from fpca import to_fd, basis_smoothing, elastic_registration, fpca, FPCAOutput, get_hyperparameters
+from utils import get_data, trim_ecg, load_synthetic_dataset, get_diagnostics
 from evaluation import euclidean, abs_cosine_similarity, krzanowski_similarity,fisher_rao
-
-# Hyperparameter setting
-n_beats = 8
-n_basis = 500
-n_components = 4
-domain_range = (0, n_beats)
-
-class FPCAOutput:
-    def __init__(self, fd, 
-            smoothed,
-            aligned,
-            warping,
-            template,
-            mean,
-            components,
-            scores,
-            var_ratio):
-        self.fd = fd
-        self.smoothed = smoothed
-        self.aligned = aligned
-        self.warping = warping
-        self.template = template
-        self.mean = mean
-        self.components = components
-        self.scores = scores
-        self.var_ratio = var_ratio
-
-    def plot(self, name, directory):
-        save_path = f"images/{directory}"
-        path=Path(save_path)
-        path.mkdir(parents=True, exist_ok=True)
-
-        self.fd.plot()
-        plt.title(f"{name}: Raw ({n_beats} beats)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Voltage (mV)")
-        plt.savefig(save_path + '/raw.png')
-        plt.close()
-        self.smoothed.plot()
-        plt.title(f"{name}: Smoothed ({n_beats} beats)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Voltage (mV)")
-        plt.savefig(save_path + "/smoothed.png")
-        plt.close()
-        self.aligned.plot()
-        plt.title(f"{name}: Aligned ({n_beats} beats)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Voltage (mV)")
-        plt.savefig(save_path + "/aligned.png")
-        plt.close()
-        self.mean.plot()
-        plt.title(f"{name}: FPCA Mean Curve ({n_beats} beats)")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Voltage (mV)")
-        plt.savefig(save_path + "/mean.png")
-        plt.close()
-        component_matrix = self.components.data_matrix
-        fig, axes = plt.subplots(n_components, 1, figsize=(8, 12))
-        xvals = np.linspace(0, n_beats, n_beats*get_sr())
-        for i in range(n_components):
-            axes[i].plot(xvals, component_matrix[i])
-            axes[i].set_title(f"{name}: Eigenfunction {i+1} ({n_beats} beats)")
-            axes[i].set_xlabel("Time (s)")
-        plt.tight_layout()
-        plt.savefig(save_path + "/components.png")
-        plt.close()
-
 
 def fpca_pipeline(data, template_):
     fd = to_fd(data, 0, n_beats, "Time (s)", "Voltage (ms)")
@@ -104,6 +35,7 @@ def evaluation_pipeline(target_fpca, reference_fpca, name):
     result['l2_target_reference'] = l2_target_reference
     result['cos_target_reference'] = cos_target_reference.tolist()
     result['krzanowski_target_reference'] = krzanowski_target_reference.tolist()
+    result['Score'] = l2_target_reference + (1-krzanowski_target_reference)
     
     with open(f"results/{name}.json", "w") as f:
         json.dump(result, f)
@@ -111,14 +43,16 @@ def evaluation_pipeline(target_fpca, reference_fpca, name):
 if __name__ == "__main__":
     diagnostic = ["NORM"]
     lead = 1
+    n_data = 1000
+    n_beats, n_basis, n_components, domain_range = get_hyperparameters()
 
     #### Holdout-Real-Synthetic Experiment
     # Get Data
     real_all = get_data(diagnostic=diagnostic, lead=lead, holdout=False)
     synth_all = load_synthetic_dataset(diagnostic, lead)
-    holdout = trim_ecg(real_all[10:20], n_beats)
-    real = trim_ecg(real_all[20:30], n_beats)
-    synth = trim_ecg(synth_all[10:20], n_beats)
+    holdout = trim_ecg(real_all[:n_data], n_beats)
+    real = trim_ecg(real_all[n_data:2*n_data], n_beats)
+    synth = trim_ecg(synth_all[:n_data], n_beats)
 
     # Run FPCA
     holdout_fpca = fpca_pipeline(holdout, None)
@@ -138,7 +72,7 @@ if __name__ == "__main__":
         diag_all= get_data(diagnostic=[diag], lead=lead, holdout=False)
 
         # Run FPCA
-        diag_partial = trim_ecg(diag_all[10:20], n_beats)
+        diag_partial = trim_ecg(diag_all[:n_data], n_beats)
         diag_fpca = fpca_pipeline(diag_partial, holdout_fpca.template)
 
         # Evaluation

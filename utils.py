@@ -79,6 +79,8 @@ def get_first_n_beats(ecg_signal, n_beats):
     cleaned = nk.ecg_clean(ecg_signal, sampling_rate=sampling_rate, method="neurokit")
     _, info = nk.ecg_peaks(cleaned, sampling_rate=sampling_rate, method="elgendi2010")  
     peaks = info['ECG_R_Peaks']
+    if len(peaks) < n_beats:
+        return None
 
     start = max(0, peaks[0] - 150)
     end = min(peaks[n_beats-1] + 300, len(cleaned))
@@ -90,12 +92,13 @@ def trim_ecg(data, n_beats):
     x_new = np.linspace(0, 1, target_len)
     for record in data:
         trimmed_record = get_first_n_beats(record, n_beats)
-        
+        if trimmed_record is None:
+            continue
         x_old = np.linspace(0, 1, len(trimmed_record))
         f = interp1d(x_old, trimmed_record, kind='linear')
         new_record = np.array(f(x_new))
         new_record = 2 * (new_record - np.min(new_record)) / (np.max(new_record) - np.min(new_record)) - 1
-        trimmed.append(f(x_new))
+        trimmed.append(new_record)
 
     return np.array(trimmed)
 

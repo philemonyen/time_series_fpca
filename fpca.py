@@ -1,14 +1,83 @@
 import skfda
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
+from utils import get_sr
 from skfda.preprocessing.dim_reduction import FPCA
 from skfda.representation.basis import BSplineBasis
 from skfda.preprocessing.smoothing import BasisSmoother
 from skfda.preprocessing.registration import FisherRaoElasticRegistration
-from utils import get_data
 
+# Hyperparameter setting
+n_beats = 8
+n_basis = 500
+n_components = 4
+domain_range = (0, n_beats)
 
 # ---- FPCA ---- #
+class FPCAOutput:
+    def __init__(self, fd, 
+            smoothed,
+            aligned,
+            warping,
+            template,
+            mean,
+            components,
+            scores,
+            var_ratio):
+        self.fd = fd
+        self.smoothed = smoothed
+        self.aligned = aligned
+        self.warping = warping
+        self.template = template
+        self.mean = mean
+        self.components = components
+        self.scores = scores
+        self.var_ratio = var_ratio
+
+    def plot(self, name, directory):
+        save_path = f"images/{directory}"
+        path=Path(save_path)
+        path.mkdir(parents=True, exist_ok=True)
+
+        self.fd.plot()
+        plt.title(f"{name}: Raw ({n_beats} beats)")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Voltage (mV)")
+        plt.savefig(save_path + '/raw.png')
+        plt.close()
+        self.smoothed.plot()
+        plt.title(f"{name}: Smoothed ({n_beats} beats)")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Voltage (mV)")
+        plt.savefig(save_path + "/smoothed.png")
+        plt.close()
+        self.aligned.plot()
+        plt.title(f"{name}: Aligned ({n_beats} beats)")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Voltage (mV)")
+        plt.savefig(save_path + "/aligned.png")
+        plt.close()
+        self.mean.plot()
+        plt.title(f"{name}: FPCA Mean Curve ({n_beats} beats)")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Voltage (mV)")
+        plt.savefig(save_path + "/mean.png")
+        plt.close()
+        component_matrix = self.components.data_matrix
+        fig, axes = plt.subplots(n_components, 1, figsize=(8, 12))
+        xvals = np.linspace(0, n_beats, n_beats*get_sr())
+        for i in range(n_components):
+            axes[i].plot(xvals, component_matrix[i])
+            axes[i].set_title(f"{name}: Eigenfunction {i+1} ({n_beats} beats)")
+            axes[i].set_xlabel("Time (s)")
+        plt.tight_layout()
+        plt.savefig(save_path + "/components.png")
+        plt.close()
+
+def get_hyperparameters():
+    return n_beats, n_basis, n_components, domain_range
+
 def to_fd(data, time_start, time_end, x_axis, y_axis):
     _, seq_len = data.shape
     timepoints = np.linspace(time_start, time_end, seq_len)
