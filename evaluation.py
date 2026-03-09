@@ -8,11 +8,6 @@ def euclidean(fd1, fd2):
     data2 = fd2.data_matrix.squeeze()
     return np.linalg.norm(data1 - data2)
 
-def cosine_similarity(fd1, fd2):
-    data1 = fd1.data_matrix.squeeze()
-    data2 = fd2.data_matrix.squeeze()
-    return np.sum(data1 * data2, axis=0) / (np.linalg.norm(data1, axis=0) * np.linalg.norm(data2, axis=0))
-
 def abs_cosine_similarity(fd1, fd2):
     """|cos(θ)| = |a·b| / (||a|| ||b||). Each row of f1, f2 is one vector."""
     f1 = fd1.data_matrix.squeeze()

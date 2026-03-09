@@ -1,31 +1,12 @@
 import numpy as np
 import json
-from fpca import to_fd, basis_smoothing, elastic_registration, fpca, FPCAOutput, get_hyperparameters
+import numpy as np
+from fpca import get_hyperparameters, fpca_pipeline
 from utils import get_data, trim_ecg, load_synthetic_dataset, get_diagnostics
-from evaluation import euclidean, abs_cosine_similarity, krzanowski_similarity,fisher_rao
+from evaluation import euclidean, abs_cosine_similarity, krzanowski_similarity
 
-def fpca_pipeline(data, template_):
-    fd = to_fd(data, 0, n_beats, "Time (s)", "Voltage (ms)")
-    smoothed = basis_smoothing(fd, n_basis, domain_range)
-    if template_:
-        aligned, warping = elastic_registration(smoothed, template=template_)
-        template = None
-    else:
-        aligned, warping, template = elastic_registration(smoothed)
-    mean, components, scores, var_ratio = fpca(aligned, n_components)
-    return FPCAOutput(
-        fd, 
-        smoothed,
-        aligned,
-        warping,
-        template,
-        mean,
-        components,
-        scores,
-        var_ratio
-    )
 
-def evaluation_pipeline(target_fpca, reference_fpca, name):
+def fidelity_evaluation_pipeline(target_fpca, reference_fpca, name):
     l2_target_reference = euclidean(target_fpca.mean, reference_fpca.mean)
     cos_target_reference = abs_cosine_similarity(target_fpca.components, reference_fpca.components)
     krzanowski_target_reference = krzanowski_similarity(target_fpca.components, reference_fpca.components)
@@ -60,7 +41,7 @@ if __name__ == "__main__":
     synth_fpca = fpca_pipeline(synth, holdout_fpca.template)
 
     # Evaluation
-    evaluation_pipeline(synth_fpca, real_fpca, "Synthetic-Real")
+    fidelity_evaluation_pipeline(synth_fpca, real_fpca, "Synthetic-Real")
 
     # Plotting
     holdout_fpca.plot("Holdout", "holdout")
@@ -76,7 +57,7 @@ if __name__ == "__main__":
         diag_fpca = fpca_pipeline(diag_partial, holdout_fpca.template)
 
         # Evaluation
-        evaluation_pipeline(diag_fpca, real_fpca, f"{diag}-Real")
+        fidelity_evaluation_pipeline(diag_fpca, real_fpca, f"{diag}-Real")
 
         # Plotting 
         diag_fpca.plot(diag, diag.lower())

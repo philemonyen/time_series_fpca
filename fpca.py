@@ -24,7 +24,8 @@ class FPCAOutput:
             mean,
             components,
             scores,
-            var_ratio):
+            var_ratio,
+            fpca_):
         self.fd = fd
         self.smoothed = smoothed
         self.aligned = aligned
@@ -34,7 +35,8 @@ class FPCAOutput:
         self.components = components
         self.scores = scores
         self.var_ratio = var_ratio
-
+        self.fpca_ = fpca_
+        
     def plot(self, name, directory):
         save_path = f"images/{directory}"
         path=Path(save_path)
@@ -113,13 +115,41 @@ def elastic_registration(fd, template=None):
         return fd_aligned, warping_, template_
 
 def fpca(fd, n_components):
-    fpca = FPCA(n_components=n_components)
-    scores = fpca.fit_transform(fd)
-    var_ratio = fpca.explained_variance_ratio_
-    mean = fpca.mean_
-    components = fpca.components_
-    return mean, components, scores, var_ratio
+    fpca_ = FPCA(n_components=n_components)
+    scores = fpca_.fit_transform(fd)
+    var_ratio = fpca_.explained_variance_ratio_
+    mean = fpca_.mean_
+    components = fpca_.components_
+    return mean, components, scores, var_ratio, fpca_
 
 #--- Inverse FPCA ---- #
 def inverse_fpca(scores, components, mean, warping):
     return (scores @ components + mean).transform(warping)
+
+# Pipeline
+def fpca_pipeline(data, template_):
+    fd = to_fd(data, 0, n_beats, "Time (s)", "Voltage (ms)")
+    smoothed = basis_smoothing(fd, n_basis, domain_range)
+    if template_:
+        aligned, warping = elastic_registration(smoothed, template=template_)
+        template = None
+    else:
+        aligned, warping, template = elastic_registration(smoothed)
+    mean, components, scores, var_ratio, fpca_ = fpca(aligned, n_components)
+    return FPCAOutput(
+        fd, 
+        smoothed,
+        aligned,
+        warping,
+        template,
+        mean,
+        components,
+        scores,
+        var_ratio,
+        fpca_
+    )
+
+def fpca_transform_pipeline(fpca_, data):
+    fd = to_fd(data, 0, n_beats, "Time (s)", "Voltage (ms)")
+    smoothed = basis_smoothing(fd, n_basis, domain_range)
+    return fpca_.transform(smoothed)

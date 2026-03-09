@@ -3,7 +3,6 @@ import wfdb
 import pandas as pd
 import numpy as np
 import neurokit2 as nk
-import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
 #### ---- Dataset Source ----  ####
@@ -97,7 +96,6 @@ def trim_ecg(data, n_beats):
         x_old = np.linspace(0, 1, len(trimmed_record))
         f = interp1d(x_old, trimmed_record, kind='linear')
         new_record = np.array(f(x_new))
-        new_record = 2 * (new_record - np.min(new_record)) / (np.max(new_record) - np.min(new_record)) - 1
         trimmed.append(new_record)
 
     return np.array(trimmed)
