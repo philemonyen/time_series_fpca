@@ -3,14 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from utils import get_sr
+from preprocess import basis_smoothing, elastic_registration
 from skfda.preprocessing.dim_reduction import FPCA
-from skfda.representation.basis import BSplineBasis
-from skfda.preprocessing.smoothing import BasisSmoother
-from skfda.preprocessing.registration import FisherRaoElasticRegistration
 
 # Hyperparameter setting
 n_beats = 8
-n_basis = 500
+n_basis = 50
 n_components = 4
 domain_range = (0, n_beats)
 
@@ -25,7 +23,8 @@ class FPCAOutput:
             components,
             scores,
             var_ratio,
-            fpca_):
+            fpca_,
+            n_components):
         self.fd = fd
         self.smoothed = smoothed
         self.aligned = aligned
@@ -36,6 +35,7 @@ class FPCAOutput:
         self.scores = scores
         self.var_ratio = var_ratio
         self.fpca_ = fpca_
+        self.n_components = n_components
         
     def plot(self, name, directory):
         save_path = f"images/{directory}"
@@ -91,36 +91,46 @@ def to_fd(data, time_start, time_end, x_axis, y_axis):
     )
     return fd
 
-def basis_smoothing(fd, n_basis, domain_range):
-    basis = BSplineBasis(
-        n_basis=n_basis,
-        domain_range=domain_range,
-        order=4
-    )
-    smoother = BasisSmoother(basis=basis, smoothing_parameter=1e-8)
-    fd_smooth = smoother.fit_transform(fd)
-    return fd_smooth
+def fpca(fd, var_threshold=0.95):
+    """
+    Determine optimal number of components using the elbow method, then run FPCA with it
+    Args:
+        fd (FDataGrid): the original signal
+    Returns:
+        mean (FDataGrid): the mean curve
+        components (FDataGrid): the components
+        scores (numpy.ndarray): the scores
+        var_ratio (numpy.ndarray): the variance ratio
+        fpca_ (FPCA): the FPCA object
+    """
+    # Dataset-wide z-normalization using a single global mean/std.
+    data_matrix = fd.data_matrix
+    dataset_mean = np.mean(data_matrix)
+    dataset_std = np.std(data_matrix)
+    if np.isclose(dataset_std, 0.0):
+        raise ValueError("Dataset-wide standard deviation is zero; cannot z-normalize.")
+    fd = fd.copy(data_matrix=(data_matrix - dataset_mean) / dataset_std)
 
-def elastic_registration(fd, template=None):
-    if template:
-        registration = FisherRaoElasticRegistration(template=template)
-        fd_aligned = registration.fit_transform(fd)
-        warping_ = registration.warping_
-        return fd_aligned, warping_
-    else:
-        registration = FisherRaoElasticRegistration()
-        fd_aligned = registration.fit_transform(fd)
-        warping_ = registration.warping_
-        template_ = registration.template_
-        return fd_aligned, warping_, template_
+    # Find optimal number of components with cumulative variance ratio and elbow method plot
+    max_components = 10
+    fpca_ = FPCA(n_components=max_components)
+    scores = fpca_.fit_transform(fd)
+    var_ratio = fpca_.explained_variance_ratio_
+    n_components = np.argmax(np.cumsum(var_ratio) >= var_threshold) + 1
+    plt.plot(np.cumsum(var_ratio), label="Cumulative Variance Ratio")
+    plt.xlabel("Number of Components")
+    plt.ylabel("Cumulative Variance Ratio")
+    plt.title("Elbow Method")
+    plt.savefig("images/fpca/elbow.png")
+    plt.close()
 
-def fpca(fd, n_components):
+    # FPCA with optimal number of components
     fpca_ = FPCA(n_components=n_components)
     scores = fpca_.fit_transform(fd)
     var_ratio = fpca_.explained_variance_ratio_
     mean = fpca_.mean_
     components = fpca_.components_
-    return mean, components, scores, var_ratio, fpca_
+    return mean, components, scores, var_ratio, fpca_, n_components
 
 #--- Inverse FPCA ---- #
 def inverse_fpca(scores, components, mean, warping):
@@ -129,13 +139,13 @@ def inverse_fpca(scores, components, mean, warping):
 # Pipeline
 def fpca_pipeline(data, template_):
     fd = to_fd(data, 0, n_beats, "Time (s)", "Voltage (ms)")
-    smoothed = basis_smoothing(fd, n_basis, domain_range)
+    gcv, lambda_, smoothed = basis_smoothing(fd, n_basis, domain_range)
     if template_:
         aligned, warping = elastic_registration(smoothed, template=template_)
         template = None
     else:
         aligned, warping, template = elastic_registration(smoothed)
-    mean, components, scores, var_ratio, fpca_ = fpca(aligned, n_components)
+    mean, components, scores, var_ratio, fpca_, n_components = fpca(aligned)
     return FPCAOutput(
         fd, 
         smoothed,
@@ -151,5 +161,5 @@ def fpca_pipeline(data, template_):
 
 def fpca_transform_pipeline(fpca_, data):
     fd = to_fd(data, 0, n_beats, "Time (s)", "Voltage (ms)")
-    smoothed = basis_smoothing(fd, n_basis, domain_range)
+    gcv, lambda_, smoothed = basis_smoothing(fd, n_basis, domain_range)
     return fpca_.transform(smoothed)

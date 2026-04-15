@@ -48,26 +48,26 @@ if __name__ == "__main__":
     real_fpca.plot("Real", "real")
     synth_fpca.plot("Synthetic", "synthetic")
 
-    #### Holdout-Multi-Class Experiment
-    for diag in get_diagnostics():
-        diag_all= get_data(diagnostic=[diag], lead=lead, holdout=False)
+    # #### Holdout-Multi-Class Experiment
+    # for diag in get_diagnostics():
+    #     diag_all= get_data(diagnostic=[diag], lead=lead, holdout=False)
 
-        # Run FPCA
-        diag_partial = trim_ecg(diag_all[:n_data], n_beats)
-        diag_fpca = fpca_pipeline(diag_partial, holdout_fpca.template)
+    #     # Run FPCA
+    #     diag_partial = trim_ecg(diag_all[:n_data], n_beats)
+    #     diag_fpca = fpca_pipeline(diag_partial, holdout_fpca.template)
 
-        # Evaluation
-        fidelity_evaluation_pipeline(diag_fpca, real_fpca, f"{diag}-Real")
+    #     # Evaluation
+    #     fidelity_evaluation_pipeline(diag_fpca, real_fpca, f"{diag}-Real")
 
-        # Plotting 
-        diag_fpca.plot(diag, diag.lower())
+    #     # Plotting 
+    #     diag_fpca.plot(diag, diag.lower())
 
 
-    # # Absolute cosine similarity between corresponding eigenfunctions
-    # abs_cos = abs_cosine_similarity(holdout_fpca.components, real_fpca.components)
-    # for i in range(len(abs_cos)):
-    #     print(f"Absolute Cosine Similarity (NORM2 vs NORM) - Eigenfunction {i+1}: ", abs_cos[i])
-    # print("\n")
-    # abs_cos = abs_cosine_similarity(holdout_fpca.components, MI_output.components)
-    # for i in range(len(abs_cos)):
-    #     print(f"Absolute Cosine Similarity (MI vs NORM) - Eigenfunction {i+1}: ", abs_cos[i])
+    # # # Absolute cosine similarity between corresponding eigenfunctions
+    # # abs_cos = abs_cosine_similarity(holdout_fpca.components, real_fpca.components)
+    # # for i in range(len(abs_cos)):
+    # #     print(f"Absolute Cosine Similarity (NORM2 vs NORM) - Eigenfunction {i+1}: ", abs_cos[i])
+    # # print("\n")
+    # # abs_cos = abs_cosine_similarity(holdout_fpca.components, MI_output.components)
+    # # for i in range(len(abs_cos)):
+    # #     print(f"Absolute Cosine Similarity (MI vs NORM) - Eigenfunction {i+1}: ", abs_cos[i])

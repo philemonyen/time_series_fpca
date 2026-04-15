@@ -1,11 +1,5 @@
 # Source: https://github.com/ezhang1218/CFPCA/tree/main
 
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,11 +15,6 @@ from skfda.representation.basis import (
 from scipy.interpolate import interp1d
 
 
-
-
-# In[2]:
-
-
 def check_uniformity(data, interval):
     """ Check that all observations within the data have the same length. """
     expected_length = len(interval)
@@ -33,11 +22,7 @@ def check_uniformity(data, interval):
         if len(observation) != expected_length:
             raise ValueError("All observations must have the same length.")
 
-
-# In[3]:
-
-
-def CFPCA(foreground, background, alpha, interval, centered, aligned):
+def CFPCA(foreground, background, alpha, interval, centered, aligned, threshold=0.95):
     """
     Perform Contrastive Functional Principal Component Analysis (CFPCA).
 
@@ -80,12 +65,12 @@ def CFPCA(foreground, background, alpha, interval, centered, aligned):
     sorted_indices = np.argsort(eigenvalues)[::-1]
     sorted_eigenvalues = eigenvalues[sorted_indices]
     sorted_eigenvectors = eigenvectors[:, sorted_indices]
+
+    n_components = np.argmax(np.cumsum(sorted_eigenvalues) >= threshold) + 1
+    sorted_eigenvectors = sorted_eigenvectors[:, :n_components]
+    sorted_eigenvalues = sorted_eigenvalues[:n_components]
     
-    return ((w**(-1 / 2)) * sorted_eigenvectors, (w**(-1))*sorted_eigenvalues)
-
-
-# In[4]:
-
+    return ((w**(-1 / 2)) * sorted_eigenvectors, (w**(-1))*sorted_eigenvalues, n_components)
 
 def interpolate_data(data):
     # First check that all observations have the same length
@@ -111,10 +96,6 @@ def interpolate_data(data):
             interpolated_data[idx].fill(valid_values[0] if len(valid_values) > 0 else np.nan)
 
     return interpolated_data
-
-
-# In[5]:
-
 
 def CFPCA_2(foreground, background, alpha, interval, aligned, num_bases):
     """
@@ -184,8 +165,6 @@ def CFPCA_2(foreground, background, alpha, interval, aligned, num_bases):
     components = np.linalg.solve(Lt, sorted_eigenvectors[:, :]).T
 
     return (components,sorted_eigenvalues)
-
-# In[ ]:
 
 def l2_distance(true_func, estimated_func, t):
     """

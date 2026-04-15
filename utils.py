@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import neurokit2 as nk
 from scipy.interpolate import interp1d
+import matplotlib.pyplot as plt
 
 #### ---- Dataset Source ----  ####
 # https://physionet.org/content/ptb-xl/1.0.3/
@@ -53,7 +54,13 @@ def get_data(diagnostic, lead=None, holdout=False):
         data = [wfdb.rdsamp(path+f) for f in Y.filename_hr if Y.loc[Y.filename_hr == f].diagnostic_superclass.values[0] == diagnostic]
 
     data = np.array([signal for signal, meta in data])
-    data = data.transpose(0, 2, 1)
+    data = data.transpose(0, 2, 1) # (n_records, n_leads, n_samples)
+    # Perform min-max scaling for each lead
+    # min_per_lead = data.min(axis=(0, 2), keepdims=True)  # shape: (1, n_leads, 1)
+    # max_per_lead = data.max(axis=(0, 2), keepdims=True)  # shape: (1, n_leads, 1)
+    # denom = (max_per_lead - min_per_lead)
+    # denom[denom == 0] = 1  # avoid division by zero
+    # data = (data - min_per_lead) / denom
     n_records, _, _ = data.shape
 
     if lead:
@@ -71,7 +78,19 @@ def load_synthetic_dataset(diagnostic, lead):
     class_index = np.where(diagnostics == diagnostic)[0][0]
     mask = (label[:, class_index] == 1)
 
-    return data[mask][:, lead, :]
+    filtered = data[mask][:, lead, :]
+    # min_per_lead = filtered.min(axis=0, keepdims=True) 
+    # max_per_lead = filtered.max(axis=0, keepdims=True)
+    # denom = (max_per_lead - min_per_lead)
+    # denom[denom == 0] = 1  # avoid division by zero
+    # filtered = (filtered - min_per_lead) / denom
+    # Perform z-normalization (mean=0, std=1) for each lead
+    # mean_per_lead = filtered.mean(axis=0, keepdims=True)
+    # std_per_lead = filtered.std(axis=0, keepdims=True)
+    # std_per_lead[std_per_lead == 0] = 1  # avoid division by zero
+    # filtered = (filtered - mean_per_lead) / std_per_lead
+
+    return filtered
 
 #### ---- ECG Data Processing ---- ####
 def get_first_n_beats(ecg_signal, n_beats):
@@ -105,6 +124,7 @@ if __name__ == "__main__":
     diagnostic = ["NORM"]
     lead = 1
     synth_all = load_synthetic_dataset(diagnostic, lead)
+
     
 
     
