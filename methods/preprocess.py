@@ -1,12 +1,14 @@
+from pathlib import Path
 import numpy as np
+from matplotlib import pyplot as plt
 from skfda.representation.basis import BSplineBasis
 from skfda.preprocessing.smoothing import BasisSmoother
 from skfda.preprocessing.registration import FisherRaoElasticRegistration
 
 
-def basis_smoothing(fd, n_basis, domain_range):
+def basis_smoothing_with_hyperparameter_tuning(fd, n_basis, domain_range):
     """
-    Implement basis smoothing with hyperparameter tuning using the big-k optimal lambda strategy
+    Implement basis smoothing hyperparameter tuning using the big-k optimal lambda strategy
     
     Args:
         fd (FDataGrid): the original signal
@@ -29,21 +31,49 @@ def basis_smoothing(fd, n_basis, domain_range):
     )
 
     # grid search for lambda
-    lambda_range = np.logspace(start=-6, stop=2, num=8)
+    exp_range = [-6, -5, -4, -3, -2, -1, 0, 1, 2]
+    gcvs = []
+    lambdas = []
     best_gcv = float('inf')
     best_lambda = None
     best_fd_smooth = None
-    for lambda_ in lambda_range:
+    for exp in exp_range:
+        lambda_ = 10**(exp)
         smoother = BasisSmoother(basis=basis, smoothing_parameter=lambda_)
-        fd_smooth = smoother.fit_transform(fd)
-        # calculate the error
-        error = np.mean((fd_smooth.data_matrix - fd.data_matrix) ** 2)
-        gcv = error / (1 - smoother.n_basis / fd.n_samples) ** 2
+        smoothed = smoother.fit_transform(fd)
+
+        # Calculate GCV
+        hat_matrix = smoother.hat_matrix()
+        sse = np.sum((fd.data_matrix - smoothed.data_matrix) ** 2)
+        n_samples, n_timepoints, n_coordinates = fd.data_matrix.shape
+        gcv = (sse / (n_samples * n_timepoints * n_coordinates)) / ((1 - np.trace(hat_matrix) / n_timepoints) ** 2)
+        gcvs.append(gcv)
+        lambdas.append(lambda_)
         if gcv < best_gcv:
             best_gcv = gcv
             best_lambda = lambda_
-            best_fd_smooth = fd_smooth
-    return best_gcv, best_lambda, best_fd_smooth
+            best_fd_smooth = smoothed
+
+    return best_fd_smooth, best_gcv, best_lambda, gcvs, lambdas
+
+def basis_smoothing_with_lambda(fd, lambda_, n_basis, domain_range):
+    """
+    Implement basis smoothing with a given lambda
+    Args:
+        fd (FDataGrid): the original signal
+        lambda_ (float): the lambda value
+        domain_range (tuple): (start, end) of the domain
+    Returns:
+        fd_smooth (FDataGrid): the smoothed signal
+    """
+    basis = BSplineBasis(
+        n_basis=n_basis,
+        domain_range=domain_range,
+        order=4
+    )
+    smoother = BasisSmoother(basis=basis, smoothing_parameter=lambda_)
+    fd_smooth = smoother.fit_transform(fd)
+    return fd_smooth
 
 def elastic_registration(fd, template=None):
     if template:

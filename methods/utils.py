@@ -3,8 +3,9 @@ import wfdb
 import pandas as pd
 import numpy as np
 import neurokit2 as nk
-from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
+from pathlib import Path
 
 #### ---- Dataset Source ----  ####
 # https://physionet.org/content/ptb-xl/1.0.3/
@@ -119,6 +120,46 @@ def trim_ecg(data, n_beats):
 
     return np.array(trimmed)
 
+def plot(name, directory, fd, fd_smooth, fd_aligned, mean, components, n_beats):
+    save_path = f"images/{directory}"
+    path=Path(save_path)
+    path.mkdir(parents=True, exist_ok=True)
+
+    fd.plot()
+    plt.title(f"{name}: Raw ({n_beats} beats)")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.savefig(save_path + '/raw.png')
+    plt.close()
+    fd_smooth.plot()
+    plt.title(f"{name}: Smoothed ({n_beats} beats)")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.savefig(save_path + "/smoothed.png")
+    plt.close()
+    fd_aligned.plot()
+    plt.title(f"{name}: Aligned ({n_beats} beats)")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.savefig(save_path + "/aligned.png")
+    plt.close()
+    mean.plot()
+    plt.title(f"{name}: FPCA Mean Curve ({n_beats} beats)")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.savefig(save_path + "/mean.png")
+    plt.close()
+    component_matrix = components.data_matrix
+    n_components = component_matrix.shape[0]
+    fig, axes = plt.subplots(n_components, 1, figsize=(8, 12))
+    xvals = np.linspace(0, n_beats, n_beats*get_sr())
+    for i in range(n_components):
+        axes[i].plot(xvals, component_matrix[i])
+        axes[i].set_title(f"{name}: Eigenfunction {i+1} ({n_beats} beats)")
+        axes[i].set_xlabel("Time (s)")
+    plt.tight_layout()
+    plt.savefig(save_path + "/components.png")
+    plt.close()
 
 if __name__ == "__main__":
     diagnostic = ["NORM"]
