@@ -1,7 +1,6 @@
 import numpy as np
 from sklearn.cross_decomposition import CCA
 from scipy.linalg import subspace_angles
-from utils import get_sr
 
 def euclidean(fd1, fd2):
     data1 = fd1.data_matrix.squeeze()

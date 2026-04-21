@@ -11,7 +11,7 @@ from pathlib import Path
 # https://physionet.org/content/ptb-xl/1.0.3/
 
 #### ---- Global Parameters ---- ####
-path = "../ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
+path = "../../ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
 # path = '~/projects/def-chenh/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/'
 sampling_rate=100
 diagnostics = np.array(['NORM', 'MI', 'STTC', 'CD', 'HYP'])

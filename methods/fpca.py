@@ -1,10 +1,5 @@
-from math import e
-import skfda
 import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
-from utils import get_sr
-from preprocess import basis_smoothing, basis_smoothing_with_lambda, elastic_registration
+from kneed import KneeLocator
 from skfda.preprocessing.dim_reduction import FPCA
 
 # Hyperparameter setting
@@ -20,41 +15,14 @@ def get_ecg_info():
     """
     return n_beats, domain_range
 
-def to_fd(data, time_start, time_end, x_axis, y_axis):
-    """
-    Transform numpy array (discrete) to FDataGrid (continuous)
-    Args:
-        data (numpy.ndarray): the data
-        time_start (float): the start time
-        time_end (float): the end time
-        x_axis (str): the x-axis label
-        y_axis (str): the y-axis label
-    Returns:
-        fd (FDataGrid): the FDataGrid
-    """
-    _, seq_len = data.shape
-    timepoints = np.linspace(time_start, time_end, seq_len)
-    fd = skfda.FDataGrid(
-        data_matrix=data,
-        grid_points=timepoints,
-        argument_names=[x_axis],
-        coordinate_names=[y_axis]
-    )
-    return fd
-
-def fpca(fd, elbow_threshold=0.005):
+def fpca_hyperparameter_tuning(fd):
     """
     Determine optimal number of components using the elbow method, then run FPCA with it
     Args:
         fd (FDataGrid): the original signal
         var_threshold (float): the threshold for the cumulative variance ratio
     Returns:
-        mean (FDataGrid): the mean curve
-        components (FDataGrid): the components
-        scores (numpy.ndarray): the scores
-        var_ratio (numpy.ndarray): the variance ratio
-        fpca_ (FPCA): the FPCA object
-        n_components: Number of eigenfunctions obtained via elbow method
+        Optimal number of components
     """
     # Centering the data by subtracting the mean
     data_matrix = fd.data_matrix
@@ -62,21 +30,14 @@ def fpca(fd, elbow_threshold=0.005):
     data_matrix = data_matrix - mean
     fd = fd.copy(data_matrix=data_matrix)
 
-    # Find optimal number of components with cumulative variance ratio and elbow method
+    # Find optimal number of components with elbow method
     max_components = 10
     fpca_ = FPCA(n_components=max_components)
-    scores = fpca_.fit_transform(fd)
+    fpca_.fit(fd)
     var_ratio = fpca_.explained_variance_ratio_
-    # elbow method: find the first index where the difference in variance ratio is less than the threshold
-    n_components = np.argmin(np.diff(var_ratio) < elbow_threshold) + 1
-
-    # FPCA with optimal number of components
-    fpca_ = FPCA(n_components=n_components)
-    scores = fpca_.fit_transform(fd)
-    var_ratio = fpca_.explained_variance_ratio_
-    mean = fpca_.mean_
-    components = fpca_.components_
-    return mean, components, scores, var_ratio, n_components
+    kl = KneeLocator(np.cumsum(var_ratio), range(1, max_components + 1), curve="convex", direction="increasing")
+    
+    return kl.knee
 
 def fpca_with_param(fd, n_components):
     """
