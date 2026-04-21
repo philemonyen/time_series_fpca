@@ -35,9 +35,12 @@ def fpca_hyperparameter_tuning(fd):
     fpca_ = FPCA(n_components=max_components)
     fpca_.fit(fd)
     var_ratio = fpca_.explained_variance_ratio_
-    kl = KneeLocator(np.cumsum(var_ratio), range(1, max_components + 1), curve="convex", direction="increasing")
+
+    return var_ratio
     
-    return kl.knee
+    # kl = KneeLocator(np.cumsum(var_ratio), range(1, max_components + 1), curve="convex", direction="increasing")
+    
+    # return kl.knee
 
 def fpca_with_param(fd, n_components):
     """
@@ -53,10 +56,10 @@ def fpca_with_param(fd, n_components):
         var_ratio (numpy.ndarray): the variance ratio
     """
     # Centering the data by subtracting the mean
-    data_matrix = fd.data_matrix
-    mean = np.mean(data_matrix, axis=0)
-    data_matrix = data_matrix - mean
-    fd = fd.copy(data_matrix=data_matrix)
+    # data_matrix = fd.data_matrix
+    # mean = np.mean(data_matrix, axis=0)
+    # data_matrix = data_matrix - mean
+    # fd = fd.copy(data_matrix=data_matrix)
 
     # FPCA with optimal number of components
     fpca_ = FPCA(n_components=n_components)
@@ -64,7 +67,7 @@ def fpca_with_param(fd, n_components):
     var_ratio = fpca_.explained_variance_ratio_
     mean = fpca_.mean_
     components = fpca_.components_
-    return mean, components, scores, var_ratio
+    return mean, components, scores, var_ratio, fpca_
 
 #--- Inverse FPCA ---- #
 def inverse_fpca(scores, components, mean, warping):

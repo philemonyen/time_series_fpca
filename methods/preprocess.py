@@ -1,6 +1,7 @@
 import skfda
 import numpy as np
 from kneed import KneeLocator
+from skfda.representation import FDataGrid
 from skfda.representation.basis import BSplineBasis
 from skfda.preprocessing.smoothing import BasisSmoother
 from skfda.misc.regularization import L2Regularization
@@ -54,7 +55,7 @@ def basis_smoothing_hyperparameter_tuning(fd, n_basis, domain_range):
     penalty = L2Regularization(LinearDifferentialOperator(2))
 
     # grid search for lambda
-    exp_range = [-8, -7, -6, -5, -4, -3, -2]
+    exp_range = [-8, -7, -6, -5, -4, -3]
     gcvs = []
     lambdas = []
     durbin_watson_scores = []
@@ -67,7 +68,7 @@ def basis_smoothing_hyperparameter_tuning(fd, n_basis, domain_range):
             regularization=penalty)
 
         smoothed = smoother.fit_transform(fd)
-        residual = fd.copy(data_matrix=fd.data_matrix - smoothed.data_matrix)
+        residual = FDataGrid(data_matrix=fd.data_matrix.squeeze() - smoothed.data_matrix.squeeze())
 
         # Calculate residual autocorrelation score (Durbin-Watson statistic)
         residual_matrix = residual.data_matrix.squeeze()
@@ -95,23 +96,22 @@ def basis_smoothing_hyperparameter_tuning(fd, n_basis, domain_range):
 
     # Find the optimal lambda
     log_lambdas = np.log10(lambdas)
-    gcv_kl = KneeLocator(log_lambdas, gcvs, curve="convex", direction="increasing")
-    gcv_opt_idx = log_lambdas.tolist().index(gcv_kl.knee)
-    durbin_watson_kl = KneeLocator(log_lambdas, durbin_watson_scores, curve="concave", direction="decreasing")
-    durbin_watson_opt_idx_elbow = log_lambdas.tolist().index(durbin_watson_kl.knee)
-    edf_kl = KneeLocator(log_lambdas, edfs, curve="concave", direction="decreasing")
-    edf_opt_idx = log_lambdas.tolist().index(edf_kl.knee) if edf_kl.knee is not None else 1
+    gcv_kl = KneeLocator(log_lambdas, gcvs, curve="convex", direction="increasing", interp_method="polynomial", S=1e-4, online=True)
+    gcv_opt_idx = log_lambdas.tolist().index(gcv_kl.knee) 
+    durbin_watson_kl = KneeLocator(log_lambdas, durbin_watson_scores, curve="concave", direction="decreasing", interp_method="polynomial", S=1e-4, online=True)
+    durbin_watson_opt_idx_elbow = log_lambdas.tolist().index(durbin_watson_kl.knee) 
+    edf_kl = KneeLocator(log_lambdas, edfs, curve="concave", direction="decreasing", interp_method="polynomial", S=1e-4, online=True)
+    edf_opt_idx = log_lambdas.tolist().index(edf_kl.knee) 
     
     optimal_lambda = lambdas[gcv_opt_idx]
     optimal_lambda_elbow = lambdas[durbin_watson_opt_idx_elbow]
     optimal_lambda_edf = lambdas[edf_opt_idx]
 
-    return np.max(optimal_lambda, optimal_lambda_elbow, optimal_lambda_edf)
+    return np.max([optimal_lambda, optimal_lambda_elbow, optimal_lambda_edf])
 
 
     ##### For experiment purposes, return the gcvs and lambdas for further analysis
     # return np.array(gcvs), np.array(lambdas), np.array(durbin_watson_scores), np.array(edfs)
-
 
 
 def basis_smoothing_with_lambda(fd, lambda_, n_basis, domain_range):
@@ -137,7 +137,27 @@ def basis_smoothing_with_lambda(fd, lambda_, n_basis, domain_range):
         regularization=penalty)
 
     fd_smooth = smoother.fit_transform(fd)
-    return fd_smooth
+
+    ### Metric Calculation
+    # Durbin-Watson Score
+    residual = FDataGrid(data_matrix=fd.data_matrix.squeeze() - fd_smooth.data_matrix.squeeze())
+    residual_matrix = residual.data_matrix.squeeze()
+    residual_diff = np.diff(residual_matrix, axis=1)
+    numerator = np.sum(residual_diff ** 2, axis=1)
+    denominator = np.sum(residual_matrix ** 2, axis=1)
+    durbin_watson = np.mean(numerator / np.where(denominator > 0, denominator, 1.0))
+
+    # GCV
+    hat_matrix = smoother.hat_matrix()
+    sse = np.sum((fd.data_matrix - fd_smooth.data_matrix) ** 2)
+    n_samples, n_timepoints, n_coordinates = fd.data_matrix.shape
+    gcv = (sse / (n_samples * n_timepoints * n_coordinates)) / ((1 - np.trace(hat_matrix) / n_timepoints) ** 2)
+
+    # Effective Degrees of Freedom (EDF)
+    edf = np.trace(hat_matrix) / n_timepoints
+
+    
+    return fd_smooth, durbin_watson, gcv, edf
 
 def elastic_registration(fd, template=None):
     if template:
