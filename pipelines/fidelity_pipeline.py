@@ -7,55 +7,60 @@ if str(_ROOT) not in sys.path:
 
 import numpy as np
 import json
-import numpy as np
-from fpca import fpca_pipeline, get_ecg_info
-from utils import get_data, trim_ecg, load_synthetic_dataset, get_diagnostics
-from evaluation import euclidean, abs_cosine_similarity, krzanowski_similarity
+from methods.fpca import fpca_with_param
+from methods.preprocess import basis_smoothing_with_lambda, landmark_registration
+from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
+from methods.evaluation import euclidean, krzanowski_similarity
 
+if __name__ == "__main__":
+    diagnostic = "NORM"
+    lead = 1
+    n_data = 100
+    sr = get_sr()
+    n_beats = 10
+    domain_range = (0, 1)
+    n_timepoints = n_beats * sr
+    n_basis = int(n_timepoints / 2)
+    n_components = 10
 
-def fidelity_evaluation_pipeline(target_fpca, reference_fpca, name):
-    l2_target_reference = euclidean(target_fpca.mean, reference_fpca.mean)
-    cos_target_reference = abs_cosine_similarity(target_fpca.components, reference_fpca.components)
-    krzanowski_target_reference = krzanowski_similarity(target_fpca.components, reference_fpca.components)
-    result = {}
-    result['variance_ratios'] = target_fpca.var_ratio.tolist()
-    result['variance_sum'] = np.sum(target_fpca.var_ratio)
-    result['l2_target_reference'] = l2_target_reference
-    result['cos_target_reference'] = cos_target_reference.tolist()
-    result['krzanowski_target_reference'] = krzanowski_target_reference.tolist()
-    result['Score'] = l2_target_reference + (1-krzanowski_target_reference)
-    
-    with open(f"results/{name}.json", "w") as f:
-        json.dump(result, f)
+    # Get Real Data
+    real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
+    trimmed_real_fd, real_landmarks_all = extract_ecg_clinical_landmarks(real_all, n_beats, sr)
+    real_fd = trimmed_real_fd[:n_data]
+    real_landmarks = real_landmarks_all[:n_data]
 
-# if __name__ == "__main__":
-#     diagnostic = ["NORM"]
-#     lead = 1
-#     n_data = 1000
-#     n_beats, domain_range = get_ecg_info()
+    # Get Synthetic Data
+    synthetic_all = load_synthetic_dataset(diagnostic, lead)
+    trimmed_synthetic_fd, synthetic_landmarks_all = extract_ecg_clinical_landmarks(synthetic_all, n_beats, sr)
+    synthetic_fd = trimmed_synthetic_fd[:n_data]
+    synthetic_landmarks = synthetic_landmarks_all[:n_data]
 
-#     # Get Data
-#     real_all = get_data(diagnostic=diagnostic, lead=lead, holdout=False)
-#     synth_all = load_synthetic_dataset(diagnostic, lead)
-#     holdout = trim_ecg(real_all[:n_data], n_beats)
-#     real = trim_ecg(real_all[n_data:2*n_data], n_beats)
-#     synth = trim_ecg(synth_all[:n_data], n_beats)
+    # Apply FPCA on Real and Synthetic
+    real_smooth_fd, _, _, _ = basis_smoothing_with_lambda(real_fd, 0, n_basis, domain_range)
+    real_aligned_fd, _ = landmark_registration(real_smooth_fd, real_landmarks)
+    synthetic_smooth_fd, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, 0, n_basis, domain_range)
+    synthetic_aligned_fd, _ = landmark_registration(synthetic_smooth_fd, synthetic_landmarks)
 
-#     #### Hyperparameter Tuning Visualization ####
-#     basis_mult_range = [6, 5, 4, 3]
-#     for basis_mult in basis_mult_range:
-#         n_basis = int(n_data / basis_mult)
-#         print(f"Number of basis functions: {n_basis}")
+    # Apply FPCA on Real and Synthetic
+    real_fpca_mean, real_fpca_components, real_fpca_scores, real_fpca_var_ratio, real_fpca_ = fpca_with_param(real_aligned_fd, n_components)
+    synthetic_fpca_mean, synthetic_fpca_components, synthetic_fpca_scores, synthetic_fpca_var_ratio, synthetic_fpca_ = fpca_with_param(synthetic_aligned_fd, n_components)
 
-#         output = fpca_pipeline(real_all, n_basis, None)
+    l2 = euclidean(real_fpca_mean, synthetic_fpca_mean)
+    krzanowski = krzanowski_similarity(real_fpca_components, synthetic_fpca_components)
+    print("Real NORM vs Synthetic NORM")
+    print(f"L2 distance between real and synthetic mean: {l2}")
+    print(f"Krzanowski similarity between real and synthetic: {krzanowski}")
 
-#         print(f"    Smoothing parameter: {output.lambda_}")
-#         print(f"    Number of eigenfunctions: {output.n_components}")
-#         print(f"    Variance ratio: {output.var_ratio}")
-#         print(f"    Variance sum: {np.sum(output.var_ratio)}")
-
-#     #### Fidelity Evaluation - Shared Preprocessing ####
-    
-
-
-#     #### Fidelity Evaluation - Independent Preprocessing ####
+    # Get Synthetic Data of different diagnostic
+    synthetic_all = load_synthetic_dataset("MI", lead)
+    trimmed_synthetic_fd, synthetic_landmarks_all = extract_ecg_clinical_landmarks(synthetic_all, n_beats, sr)
+    synthetic_fd = trimmed_synthetic_fd[:n_data]
+    synthetic_landmarks = synthetic_landmarks_all[:n_data]
+    synthetic_smooth_fd, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, 0, n_basis, domain_range)
+    synthetic_aligned_fd, _ = landmark_registration(synthetic_smooth_fd, synthetic_landmarks)
+    synthetic_fpca_mean, synthetic_fpca_components, synthetic_fpca_scores, synthetic_fpca_var_ratio, synthetic_fpca_ = fpca_with_param(synthetic_aligned_fd, n_components)
+    l2 = euclidean(real_fpca_mean, synthetic_fpca_mean)
+    krzanowski = krzanowski_similarity(real_fpca_components, synthetic_fpca_components)
+    print("Real NORM vs Synthetic STTC")
+    print(f"L2 distance between real and synthetic mean: {l2}")
+    print(f"Krzanowski similarity between real and synthetic: {krzanowski}")

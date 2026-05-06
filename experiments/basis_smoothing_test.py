@@ -12,150 +12,60 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-import tabulate
 import matplotlib.pyplot as plt
 import numpy as np
-from kneed import KneeLocator
-from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, to_fd
-from methods.fpca import get_ecg_info
-from methods.utils import get_data, trim_ecg, get_sr
+from methods.preprocess import basis_smoothing_with_lambda
+from methods.utils import get_sr, extract_ecg_clinical_landmarks, load_dataset
 
 
 if __name__ == "__main__":
-    diagnostic = ["NORM"]
+    diagnostic = "NORM"
     lead = 1
-    n_data = 1000
-    n_beats, domain_range = get_ecg_info()
-    n_timepoints = n_beats * get_sr()
+    n_data = 100
+    sr = get_sr()
+    n_beats = 10
+    domain_range = (0, 1)
+    n_timepoints = n_beats * sr
+    smoothing_parameter = [0, 1e-10, 1e-9, 1e-8]
 
-    real_all = get_data(diagnostic=diagnostic, lead=lead, holdout=False)
-    real = trim_ecg(real_all[n_data:2*n_data], n_beats)
-    test = trim_ecg(real_all[2*n_data:3*n_data], n_beats)
+    real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
+    trimmed_real_fd, landmarks_all = extract_ecg_clinical_landmarks(real_all, n_beats, sr)
 
-    max_amp, min_amp = np.max(real), np.min(real)
-    print(f"Max amplitude: {max_amp}, Min amplitude: {min_amp}")
-    fd = to_fd(real, 0, n_beats, "time", "voltage")
-    fd_test = to_fd(test, 0, n_beats, "time", "voltage")
+    real_fd = trimmed_real_fd[:n_data]
+    test_fd = trimmed_real_fd[n_data:2*n_data]
 
-    ### Hyperparameter Tuning Visualization ###
-    # for timepoints_per_basis in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
-    #     n_basis = int(n_timepoints / timepoints_per_basis)
-    #     gcvs, lambdas, durbin_watson_scores, edfs = basis_smoothing_hyperparameter_tuning(fd, n_basis, domain_range)
-    #     # Find the knee point of GCV vs Lambda
-    #     # error_rate = np.sqrt(gcvs) / (max_amp - min_amp)
-    #     log_lambdas = np.log10(lambdas)
-    #     gcv_kl = KneeLocator(log_lambdas, gcvs, curve="convex", direction="increasing")
-    #     gcv_opt_idx = log_lambdas.tolist().index(gcv_kl.knee)
+    max_amp, min_amp = np.max(real_fd.data_matrix.squeeze()), np.min(real_fd.data_matrix.squeeze())
 
-    #     # Find index of DW with elbow method
-    #     durbin_watson_kl = KneeLocator(log_lambdas, durbin_watson_scores, curve="concave", direction="decreasing")
-    #     durbin_watson_opt_idx_elbow = log_lambdas.tolist().index(durbin_watson_kl.knee)
-
-    #     # Find index of EDF with elbow method
-    #     edf_kl = KneeLocator(log_lambdas, edfs, curve="concave", direction="decreasing")
-    #     edf_opt_idx = log_lambdas.tolist().index(edf_kl.knee) if edf_kl.knee is not None else 1
-
-    #     print(f"Number of basis functions: {n_basis}:")
-    #     print(f"    Optimal lambda (GCV error rate): {lambdas[gcv_opt_idx]}")
-    #     print(f"    GCV error rate: {np.sqrt(gcvs[gcv_opt_idx]) / (max_amp - min_amp)}")
-    #     print(f"    Optimal lambda (Durbin-Watson): {lambdas[durbin_watson_opt_idx_elbow]}")
-    #     print(f"    Durbin-Watson: {durbin_watson_scores[durbin_watson_opt_idx_elbow]}")
-    #     print(f"    Optimal lambda (Effective degrees of freedom): {lambdas[edf_opt_idx]}")
-    #     print(f"    Effective degrees of freedom: {edfs[edf_opt_idx]}")
-
-    #     save_path = f"../images/basis_smoothing/{n_basis}"
-    #     path=Path(save_path)
-    #     path.mkdir(parents=True, exist_ok=True)
-
-    #     plt.plot(lambdas, durbin_watson_scores)
-    #     plt.xlabel("Lambda (log scale)")
-    #     plt.xscale("log")
-    #     plt.ylabel("Durbin-Watson Score")
-    #     plt.title(f"Durbin-Watson Score vs Lambda: {n_basis} basis functions")
-    #     plt.savefig(save_path + "/durbin_watson_score_vs_lambda.png")
-    #     plt.close()
-
-    #     plt.plot(lambdas, edfs)
-    #     plt.xlabel("Lambda (log scale)")
-    #     plt.xscale("log")
-    #     plt.ylabel("Effective Degrees of Freedom")
-    #     plt.title(f"Effective Degrees of Freedom vs Lambda: {n_basis} basis functions")
-    #     plt.savefig(save_path + "/edf_vs_lambda.png")
-    #     plt.close()
-
-    #     plt.plot(lambdas, gcvs)
-    #     plt.xlabel("Lambda (log scale)")
-    #     plt.xscale("log")
-    #     plt.ylabel("GCV")
-    #     plt.title(f"GCV vs Lambda: {n_basis} basis functions")
-    #     plt.savefig(save_path + "/gcv_vs_lambda.png")
-    #     plt.close()
-
-    ### Test Generalization ###
-    gcvs = []
-    durbin_watson_scores = []
-    edfs = []
-    lambdas = []
-    n_basis_list = []
-    plt_idx = 0
-
-    fd_test[plt_idx].plot()
+    real_fd[0].plot()
+    plt.title("Original Signal")
     plt.xlabel("Time (s)")
     plt.ylabel("Voltage (mV)")
-    plt.title("Test ECG - Original")
-    plt.savefig("../images/basis_smoothing/test/test_ecg.png")
+    plt.savefig("../images/basis_smoothing/original.png")
     plt.close()
 
-    test_max, test_min = np.max(fd_test.data_matrix.squeeze()), np.min(fd_test.data_matrix.squeeze())
-    for timepoints_per_basis in [2, 3, 4, 5, 6, 7, 8, 9, 10]:
-        n_basis = int(n_timepoints / timepoints_per_basis)
-        n_basis_list.append(n_basis)
-        
-        # Basis smoothing
-        lambda_ = basis_smoothing_hyperparameter_tuning(fd, n_basis, domain_range)
-        fd_smooth, durbin_watson, gcv, edf = basis_smoothing_with_lambda(fd_test, lambda_, n_basis, domain_range)
+    for timepoints_per_basis in [2,3,4,5]:
+        for lambda_ in smoothing_parameter:
+            n_basis = int(n_timepoints / timepoints_per_basis)
+            save_path = f"../images/basis_smoothing/{n_basis}"
+            path=Path(save_path)
+            path.mkdir(parents=True, exist_ok=True)
 
-        lambdas.append(lambda_)
-        gcvs.append(np.sqrt(gcv) / (test_max - test_min))
-        durbin_watson_scores.append(durbin_watson)
-        edfs.append(edf)
+            fd_smooth, durbin_watson, gcv, edf = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)
+            fd_smooth[0].plot()
+            plt.title(f"Smoothed Signal with {n_basis} basis functions and lambda {lambda_}")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Voltage (mV)")
+            plt.savefig(f"../images/basis_smoothing/{n_basis}/lambda_{lambda_}.png")
+            plt.close()
+            print(f"Timepoints per basis: {timepoints_per_basis}, Lambda: {lambda_}")
+            print(f"    Durbin-Watson: {durbin_watson}")
+            print(f"    Normalized GCV: {np.sqrt(gcv) / (max_amp - min_amp)}")
+            print(f"    EDF: {edf}")
 
-        # Plot the smoothed ECG
-        fd_smooth[plt_idx].plot()
-        plt.xlabel("Time (s)")
-        plt.ylabel("Voltage (mV)")
-        plt.title(f"Test ECG - Smoothed ({n_basis} basis functions)")
-        plt.savefig(f"../images/basis_smoothing/test/test_ecg_smoothed_{n_basis}.png")
-        plt.close()
+    # Fine-grained hyperparameter tuning
+    smoothing_parameter = [1e-10, 2e-10, 3e-10, 4e-10, 5e-10]
+    for lambda_ in smoothing_parameter:
+        n_basis = int(n_timepoints / 2)
 
-    print(tabulate.tabulate([["DW"] + np.array(durbin_watson_scores)[::-1].tolist(), ["GCV"] + np.array(gcvs)[::-1].tolist(), ["EDF"] + np.array(edfs)[::-1].tolist(), ["Lambda"] + np.array(lambdas)[::-1].tolist()], 
-    headers=["Number of basis functions"] + np.array(n_basis_list)[::-1].tolist()))
-
-    plt.plot(n_basis_list, durbin_watson_scores)
-    plt.xlabel("Number of basis functions")
-    plt.ylabel("Durbin-Watson Score")
-    plt.title("Durbin-Watson Score vs Number of basis functions")
-    plt.savefig("../images/basis_smoothing/test/durbin_watson_score_vs_n_basis.png")
-    plt.close()
-
-    plt.plot(n_basis_list, gcvs)
-    plt.xlabel("Number of basis functions")
-    plt.ylabel("GCV")
-    plt.title("GCV vs Number of basis functions")
-    plt.savefig("../images/basis_smoothing/test/gcv_vs_n_basis.png")
-    plt.close()
-
-    plt.plot(n_basis_list, edfs)
-    plt.xlabel("Number of basis functions")
-    plt.ylabel("Effective Degrees of Freedom")
-    plt.title("Effective Degrees of Freedom vs Number of basis functions")
-    plt.savefig("../images/basis_smoothing/test/edf_vs_n_basis.png")
-    plt.close()
-
-    plt.plot(n_basis_list, lambdas)
-    plt.xlabel("Number of basis functions")
-    plt.ylabel("Lambda")
-    plt.yscale("log")
-    plt.title("Lambda vs Number of basis functions")
-    plt.savefig("../images/basis_smoothing/test/lambda_vs_n_basis.png")
-    plt.close()
+        fd_smooth, durbin_watson, gcv, edf = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)
+        print(f"Lambda: {lambda_}: Durbin-Watson: {durbin_watson}")

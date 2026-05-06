@@ -3,19 +3,6 @@ from kneed import KneeLocator
 from skfda.representation import FDataGrid
 from skfda.preprocessing.dim_reduction import FPCA
 
-# Hyperparameter setting
-n_beats = 8
-domain_range = (0, n_beats)
-
-def get_ecg_info():
-    """
-    Get ECG information
-    Returns:
-        n_beats (int): the number of beats
-        domain_range (tuple): (start, end) of the domain
-    """
-    return n_beats, domain_range
-
 def fpca_hyperparameter_tuning(fd):
     """
     Determine optimal number of components using the elbow method, then run FPCA with it
