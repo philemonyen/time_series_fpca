@@ -4,7 +4,6 @@ Module test for FPCA
 """
 import sys
 from pathlib import Path
-# Project root (parent of experiments/) so `methods` resolves when run as a script
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
@@ -12,14 +11,14 @@ if str(_ROOT) not in sys.path:
 
 import numpy as np
 import matplotlib.pyplot as plt
-from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, to_fd, elastic_registration, landmark_registration
+from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from methods.fpca import fpca_with_param
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
 
 if __name__ == "__main__":
     diagnostic = "NORM"
     lead = 1
-    n_data = 100
+    n_data = 1000
     sr = get_sr()
     n_beats = 10
     domain_range = (0, 1)
@@ -31,8 +30,6 @@ if __name__ == "__main__":
 
     fd = trimmed_real_fd[:n_data]
     landmarks = landmarks_all[:n_data]
-    # fd_holdout = trimmed_real_fd[n_data:2*n_data]
-    # landmarks_holdout = landmarks_all[n_data:2*n_data]
 
     # Plot original signal
     fd.plot()
@@ -76,9 +73,9 @@ if __name__ == "__main__":
     n_components = 20
     mean, components, scores, var_ratio, fpca_ = fpca_with_param(fd_aligned, n_components)
 
-    print(f"Variance ratio sum for {n_components} components: {np.sum(var_ratio[:10])}")
-    print(f"Variance ratio sum over 20 components: {np.sum(var_ratio)}")
-    print(f"Number of components required to achieve 90% variance: {np.argmin(np.cumsum(var_ratio) >= 0.9) + 1}")
+    print(f"Variance ratio sum for first 10 components: {np.sum(var_ratio[:10])}")
+    print(f"Variance ratio sum over {n_components} components: {np.sum(var_ratio)}")
+    # print(f"Number of components required to achieve 90% variance: {np.argmin(np.cumsum(var_ratio) >= 0.9) + 1}")
 
     plt.plot(var_ratio)
     plt.xlabel("Number of components")
