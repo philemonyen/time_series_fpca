@@ -10,8 +10,6 @@ from sklearn.manifold import Isomap
 from sklearn.neighbors import kneighbors_graph
 from scipy.sparse.csgraph import connected_components
 from kneed import KneeLocator
-# import pandas as pd
-# import seaborn as sns
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from methods.fpca import fpca_with_param
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
@@ -113,14 +111,3 @@ if __name__ == "__main__":
 
     iso = Isomap(n_neighbors=optimal_k, n_components=optimal_dim)
     embedding = iso.fit_transform(scores_10)
-
-    # # Plot
-    # labels = np.zeros(embedding.shape[0]).reshape(-1, 1)
-    # df = pd.DataFrame(embedding, columns=[f'Component {i+1}' for i in range(optimal_dim)])
-    # df['Source'] = labels
-
-    # # 2. Plot the matrix
-    # sns.pairplot(df, hue='Source', palette='viridis', diag_kind='kde', plot_kws={'alpha': 0.5})
-    # plt.suptitle('6D Isomap Component Matrix', y=1.02)
-    # plt.savefig(save_path + "/isomap_component_matrix.png")
-    # plt.close()
