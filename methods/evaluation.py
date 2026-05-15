@@ -1,20 +1,72 @@
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import numpy as np
-from sklearn.cross_decomposition import CCA
-from scipy.linalg import subspace_angles
+import gudhi
+from scipy.linalg import svd, orth
+from scipy.stats import wasserstein_distance
+from sklearn.neighbors import NearestNeighbors
+from scipy.spatial.distance import cdist
 
-def euclidean(fd1, fd2):
-    data1 = fd1.data_matrix.squeeze()
-    data2 = fd2.data_matrix.squeeze()
-    return np.linalg.norm(data1 - data2)
+#### Mean Curve Evaluation Metrics ####
+## Magnitude based
+def mse(fd1, fd2):
+    return np.mean((fd1.data_matrix.squeeze() - fd2.data_matrix.squeeze()) ** 2)
 
-def abs_cosine_similarity(fd1, fd2):
-    """|cos(θ)| = |a·b| / (||a|| ||b||). Each row of f1, f2 is one vector."""
-    f1 = fd1.data_matrix.squeeze()
-    f2 = fd2.data_matrix.squeeze()
-    dot = np.sum(f1 * f2, axis=1)
-    norms = np.linalg.norm(f1, axis=1) * np.linalg.norm(f2, axis=1)
-    return np.abs(dot) / np.where(norms > 0, norms, 1.0)  # avoid div by zero
+def rmse(fd1, fd2):
+    return np.sqrt(np.mean((fd1.data_matrix.squeeze() - fd2.data_matrix.squeeze()) ** 2))
 
+def mae(fd1, fd2):
+    return np.mean(np.abs(fd1.data_matrix.squeeze() - fd2.data_matrix.squeeze()))
+
+def chebyshev(fd1, fd2):
+    return np.max(np.abs(fd1.data_matrix.squeeze() - fd2.data_matrix.squeeze()))
+
+## Correlation-based and Shape-based
+def pearson_correlation(fd1, fd2):
+    return np.corrcoef(fd1.data_matrix.squeeze(), fd2.data_matrix.squeeze())[0, 1]
+
+def cosine_similarity(fd1, fd2):
+    return np.dot(fd1.data_matrix.squeeze(), fd2.data_matrix.squeeze()) / (np.linalg.norm(fd1.data_matrix.squeeze()) * np.linalg.norm(fd2.data_matrix.squeeze()))
+
+def coefficient_of_determination(fd1, fd2):
+    return 1 - np.sum((fd1.data_matrix.squeeze() - fd2.data_matrix.squeeze()) ** 2) / np.sum((fd1.data_matrix.squeeze() - np.mean(fd1.data_matrix.squeeze())) ** 2)
+
+## Geometric-based
+def frechet_distance(fd1, fd2):
+    return np.linalg.norm(fd1.data_matrix.squeeze() - fd2.data_matrix.squeeze())
+
+def dtw(fd1, fd2):
+    s1 = fd1.data_matrix.squeeze()
+    s2 = fd2.data_matrix.squeeze()
+    n, m = len(s1), len(s2)
+    
+    # Initialize the cost matrix with infinity
+    # We use (n+1) x (m+1) to handle the boundary conditions easily
+    dtw_matrix = np.full((n + 1, m + 1), np.inf)
+    dtw_matrix[0, 0] = 0
+    
+    # Fill the matrix
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            # Euclidean distance between the current points
+            cost = (s1[i-1] - s2[j-1]) ** 2
+            
+            # Recurrence relation: add current cost to the minimum of the 3 neighbors
+            dtw_matrix[i, j] = cost + min(
+                dtw_matrix[i-1, j],    # Insertion
+                dtw_matrix[i, j-1],    # Deletion
+                dtw_matrix[i-1, j-1]   # Match
+            )
+            
+    # Return the square root of the accumulated cost at the final cell
+    return np.sqrt(dtw_matrix[n, m])
+
+#### FPC Evaluation Metrics ####
+## Global Subspace Similarity ##
 def krzanowski_similarity(fd1, fd2, k=None):
     """
     Compute the Krzanowski subspace similarity between two sets of eigenfunctions.
@@ -42,11 +94,152 @@ def krzanowski_similarity(fd1, fd2, k=None):
     # Compute singular values of Q1^T Q2
     M = np.dot(Q1.T, Q2)
     s = np.linalg.svd(M, compute_uv=False)
-    similarity = np.sum(s ** 2)  / k# Krzanowski's definition: mean squared singular values
+    similarity = np.sum(s ** 2)  / k # Krzanowski's definition: mean squared singular values
 
     return similarity
 
-def fisher_rao(w1, w2):
-    derivative1 = np.sqrt(w1.derivative(order=1).data_matrix.squueze())
-    derivative2 = np.sqrt(w2.derivative(order=1).data_matrix.squeeze())
-    return np.arccos(np.sum(derivative1 * derivative2, axis=0))
+def grassmannian_distance(U, V):
+    """
+    Computes Chordal and Geodesic distances between two subspaces.
+    U, V: matrices of shape (n_features, k_components)
+    """
+    # 1. Ensure the bases are orthonormal (essential if FPCs are not pre-normalized)
+    U_orth = orth(U)
+    V_orth = orth(V)
+    
+    # 2. Compute the product matrix
+    # If using discretized functional data, ensure this represents the L2 inner product
+    M = U_orth.T @ V_orth
+    
+    # 3. Get Singular Values (cosines of the principal angles)
+    # Clip to [0, 1] to avoid numerical errors with arccos
+    S = svd(M, compute_uv=False)
+    S = np.clip(S, 0, 1)
+    
+    # 4. Calculate Principal Angles (in radians)
+    angles = np.arccos(S)
+    
+    # 5. Geodesic Distance
+    geodesic_dist = np.sqrt(np.sum(angles**2))
+    
+    # 6. Chordal Distance
+    # sin^2(theta) = 1 - cos^2(theta)
+    chordal_dist = np.sqrt(np.sum(1 - S**2))
+    
+    return geodesic_dist, chordal_dist, np.degrees(angles)
+
+#### FPC Score Vector Similarity ####
+def mmd_distance(X, Y):
+    """
+    Computes the Maximum Mean Discrepancy (MMD) between two sets of score vectors.
+    X, Y: matrices of shape (n_samples, n_components)
+    """
+    return np.sqrt(np.sum((np.mean(X, axis=0) - np.mean(Y, axis=0)) ** 2))
+
+def wasserstein_distance(X, Y):
+    """
+    Computes the Wasserstein distance between two sets of score vectors.
+    X, Y: matrices of shape (n_samples, n_components)
+    """
+    return wasserstein_distance(X, Y)
+
+def covariance_operator_dist(X, Y):
+    """
+    Computes the Covariance Operator Distance between two sets of score vectors.
+    X, Y: matrices of shape (n_samples, n_components)
+    """
+    return np.sqrt(np.sum((np.mean(X, axis=0) - np.mean(Y, axis=0)) ** 2))
+
+#### Isomap Embedding Similarity
+def compute_prdc(real_features, fake_features, nearest_k=5):
+    """
+    Computes Precision, Recall, Density, and Coverage.
+    Args:
+        real_features: (N, dim) numpy array of real data embeddings/scores.
+        fake_features: (M, dim) numpy array of synthetic data embeddings/scores.
+        nearest_k: Number of neighbors to define the manifold clusters.
+    """
+    n_real = len(real_features)
+    n_fake = len(fake_features)
+
+    # 1. Fit Nearest Neighbors on Real Data
+    nn_real = NearestNeighbors(n_neighbors=nearest_k).fit(real_features)
+    dist_real, _ = nn_real.kneighbors(real_features)
+    # Radius of the manifold at each real point (distance to k-th neighbor)
+    rad_real = dist_real[:, -1]
+
+    # 2. Fit Nearest Neighbors on Fake Data
+    nn_fake = NearestNeighbors(n_neighbors=nearest_k).fit(fake_features)
+    dist_fake, _ = nn_fake.kneighbors(fake_features)
+    # Radius of the manifold at each fake point
+    rad_fake = dist_fake[:, -1]
+
+    # Distance matrix between all real and all fake points
+    # (N, M) matrix: dist_matrix[i, j] is dist(real_i, fake_j)
+    dist_real_fake = cdist(real_features, fake_features)
+
+    # --- Precision ---
+    # Fraction of fake points that fall into at least one real point's sphere
+    # (Checking along columns for fake points)
+    precision = np.mean(np.any(dist_real_fake <= rad_real[:, None], axis=0))
+
+    # --- Recall ---
+    # Fraction of real points that fall into at least one fake point's sphere
+    # (Checking along rows for real points)
+    recall = np.mean(np.any(dist_real_fake <= rad_fake[None, :], axis=1))
+
+    # --- Density ---
+    # Average number of real spheres that contain a fake point (normalized by k)
+    density = np.mean(np.sum(dist_real_fake <= rad_real[:, None], axis=0)) / nearest_k
+
+    # --- Coverage ---
+    # Fraction of real points that have at least one fake point in their sphere
+    coverage = np.mean(np.any(dist_real_fake <= rad_real[:, None], axis=1))
+
+    return precision, recall, density, coverage
+
+def compute_geometric_score(real_data, fake_data, n_samples=100, sample_size=64, max_edge=0.5):
+    """
+    Computes the Geometric Score comparing the topology of two datasets.
+    Args:
+        real_data: (N, dim) array.
+        fake_data: (M, dim) array.
+        n_samples: Number of random sub-samples to take to estimate the Mean Betti Number.
+        sample_size: Number of points in each sub-sample.
+        max_edge: Maximum filtration value (distance threshold) for Rips complex.
+    """
+    
+    def get_betti_numbers(data):
+        # Sample the data to build a Rips Complex
+        idx = np.random.choice(len(data), sample_size, replace=False)
+        sample = data[idx]
+        
+        rips = gudhi.RipsComplex(points=sample, max_edge=max_edge)
+        simplex_tree = rips.create_simplex_tree(max_dimension=2)
+        persistence = simplex_tree.persistence()
+        
+        # We focus on Betti-0 (connected components) or Betti-1 (loops)
+        # Here we extract Betti-0 counts across the filtration
+        betti_numbers = simplex_tree.betti_numbers()
+        return betti_numbers
+
+    # Estimate Mean Betti Numbers for Real
+    real_betti = []
+    for _ in range(n_samples):
+        real_betti.append(get_betti_numbers(real_data))
+    
+    # Estimate Mean Betti Numbers for Fake
+    fake_betti = []
+    for _ in range(n_samples):
+        fake_betti.append(get_betti_numbers(fake_data))
+
+    # Calculate the average Betti-1 (or Betti-0) across samples
+    # For a simple score, we often compare the Mean Betti Number (MBN)
+    avg_real = np.mean([b[0] for b in real_betti]) # Comparing Betti-0
+    avg_fake = np.mean([b[0] for b in fake_betti])
+    
+    # The "Geometric Score" is traditionally the L1 distance between 
+    # the Betti Number curves, but the simplified version is the difference in means.
+    score = np.abs(avg_real - avg_fake)
+    
+    return score
