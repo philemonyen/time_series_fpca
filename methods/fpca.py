@@ -49,8 +49,8 @@ def fpca_with_param(fd, n_components):
     # fd = fd.copy(data_matrix=data_matrix)
 
     # FPCA with optimal number of components
-    fpca_ = FPCA(n_components=n_components)
-    scores = fpca_.fit_transform(fd)
+    fpca_ = FPCA(n_components=n_components).fit(fd)
+    scores = fpca_.transform(fd)
     var_ratio = fpca_.explained_variance_ratio_
     mean = fpca_.mean_
     components = fpca_.components_

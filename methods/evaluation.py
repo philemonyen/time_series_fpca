@@ -6,10 +6,10 @@ if str(_ROOT) not in sys.path:
 
 import numpy as np
 import gudhi
-from scipy.linalg import svd, orth
-from scipy.stats import wasserstein_distance
+from scipy.linalg import svd, orth, sqrtm
 from sklearn.neighbors import NearestNeighbors
 from scipy.spatial.distance import cdist
+from sklearn.metrics.pairwise import rbf_kernel
 
 #### Mean Curve Evaluation Metrics ####
 ## Magnitude based
@@ -129,26 +129,59 @@ def grassmannian_distance(U, V):
     return geodesic_dist, chordal_dist, np.degrees(angles)
 
 #### FPC Score Vector Similarity ####
-def mmd_distance(X, Y):
+def mmd_distance(X, Y, gamma=None):
     """
-    Computes the Maximum Mean Discrepancy (MMD) between two sets of score vectors.
-    X, Y: matrices of shape (n_samples, n_components)
+    Computes the True Maximum Mean Discrepancy using an RBF kernel.
+    Captures differences in means, variances, and non-linear shapes.
     """
-    return np.sqrt(np.sum((np.mean(X, axis=0) - np.mean(Y, axis=0)) ** 2))
+    # If gamma is None, use the median heuristic or default to 1 / n_features
+    if gamma is None:
+        gamma = 1.0 / X.shape[1]
+        
+    K_XX = rbf_kernel(X, X, gamma=gamma)
+    K_YY = rbf_kernel(Y, Y, gamma=gamma)
+    K_XY = rbf_kernel(X, Y, gamma=gamma)
+    
+    # MMD^2 formula
+    mmd_squared = np.mean(K_XX) + np.mean(K_YY) - 2 * np.mean(K_XY)
+    
+    # Relu to prevent tiny negative numbers due to floating point precision
+    return np.sqrt(np.max([mmd_squared, 0.0]))
 
-def wasserstein_distance(X, Y):
+def frechet_wasserstein(X, Y):
     """
-    Computes the Wasserstein distance between two sets of score vectors.
-    X, Y: matrices of shape (n_samples, n_components)
+    Computes the Multidimensional Fréchet Distance (2-Wasserstein distance 
+    assuming Gaussian distributions) between two score matrices.
     """
-    return wasserstein_distance(X, Y)
+    mu_X, mu_Y = np.mean(X, axis=0), np.mean(Y, axis=0)
+    sigma_X, sigma_Y = np.cov(X, rowvar=False), np.cov(Y, rowvar=False)
+    
+    # Difference between means
+    diff = mu_X - mu_Y
+    mean_term = diff.dot(diff)
+    
+    # Product of covariances
+    covmean, _ = sqrtm(sigma_X.dot(sigma_Y), disp=False)
+    
+    # Handle imaginary numbers from numerical instability
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+        
+    covariance_term = np.trace(sigma_X + sigma_Y - 2 * covmean)
+    
+    return np.sqrt(mean_term + covariance_term)
 
 def covariance_operator_dist(X, Y):
     """
-    Computes the Covariance Operator Distance between two sets of score vectors.
-    X, Y: matrices of shape (n_samples, n_components)
+    Computes the distance between the covariance operators (matrices) 
+    of the FPC scores using the Frobenius Norm.
     """
-    return np.sqrt(np.sum((np.mean(X, axis=0) - np.mean(Y, axis=0)) ** 2))
+    # rowvar=False means columns are variables (PCs), rows are samples
+    cov_X = np.cov(X, rowvar=False)
+    cov_Y = np.cov(Y, rowvar=False)
+    
+    # Compute the Frobenius norm of the difference matrix
+    return np.linalg.norm(cov_X - cov_Y, ord='fro')
 
 #### Isomap Embedding Similarity
 def compute_prdc(real_features, fake_features, nearest_k=5):
@@ -198,7 +231,7 @@ def compute_prdc(real_features, fake_features, nearest_k=5):
 
     return precision, recall, density, coverage
 
-def compute_geometric_score(real_data, fake_data, n_samples=100, sample_size=64, max_edge=0.5):
+def compute_geometric_score(real_data, fake_data, n_samples=100, sample_size=64):
     """
     Computes the Geometric Score comparing the topology of two datasets.
     Args:
@@ -214,7 +247,7 @@ def compute_geometric_score(real_data, fake_data, n_samples=100, sample_size=64,
         idx = np.random.choice(len(data), sample_size, replace=False)
         sample = data[idx]
         
-        rips = gudhi.RipsComplex(points=sample, max_edge=max_edge)
+        rips = gudhi.RipsComplex(points=sample)
         simplex_tree = rips.create_simplex_tree(max_dimension=2)
         persistence = simplex_tree.persistence()
         

@@ -155,7 +155,7 @@ def elastic_registration(fd, template=None):
         template_ = registration.template_
         return fd_aligned, warping_, template_
 
-def landmark_registration(fd, landmarks):
+def landmark_registration(fd, landmarks, locations=None):
     """
     Implement landmark registration
     Args:
@@ -164,6 +164,6 @@ def landmark_registration(fd, landmarks):
     Returns:
         fd_aligned (FDataGrid): the aligned signal
     """
-    fd_aligned = landmark_elastic_registration(fd=fd, landmarks=landmarks)
-    warping_ = landmark_elastic_registration_warping(fd=fd, landmarks=landmarks)
+    fd_aligned = landmark_elastic_registration(fd=fd, landmarks=landmarks, location=locations)
+    warping_ = landmark_elastic_registration_warping(fd=fd, landmarks=landmarks, location=locations)
     return fd_aligned, warping_
