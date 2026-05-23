@@ -14,7 +14,7 @@ from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, 
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from methods.fpca import fpca_with_param
 from methods.isomap import find_optimal_k, find_optimal_manifold_dim
-from methods.evaluation import mmd_distance, frechet_wasserstein, covariance_operator_dist, compute_prdc, compute_geometric_score
+from methods.fidelity_evaluation import mmd_distance, frechet_wasserstein, covariance_operator_dist, compute_prdc
 
 if __name__ == "__main__":
     diagnostic = "NORM"
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     landmark_locations = np.linspace(0, 1, n_beats+2)[1:-1]
 
     # Result save path
-    save_path = f"../images/fidelity/joint_manifold/"
+    save_path = f"../images/fidelity/"
     path=Path(save_path)
     path.mkdir(parents=True, exist_ok=True)
 
@@ -93,7 +93,6 @@ if __name__ == "__main__":
 
     # Compare Isomap embedding vector fidelity
     tg_precision, tg_recall, tg_density, tg_coverage = compute_prdc(holdout_fpca_scores, real_scores, optimal_k_holdout)
-    tg_geometric_score = compute_geometric_score(holdout_fpca_scores, real_scores)
 
     ## Synthetic Gap ##
     # Compare FPC score matrix fidelity
@@ -103,7 +102,6 @@ if __name__ == "__main__":
 
     # Compare Isomap embedding vector fidelity
     sg_precision, sg_recall, sg_density, sg_coverage = compute_prdc(holdout_fpca_scores, synthetic_scores, optimal_k_holdout)
-    sg_geometric_score = compute_geometric_score(holdout_fpca_scores, synthetic_scores)
 
     ## Real vs. Synthetic ##
     # Compare FPC score matrix fidelity
@@ -113,7 +111,6 @@ if __name__ == "__main__":
 
     # Compare Isomap embedding vector fidelity
     rs_precision, rs_recall, rs_density, rs_coverage = compute_prdc(real_scores, synthetic_scores, optimal_k_holdout)
-    rs_geometric_score = compute_geometric_score(real_scores, synthetic_scores)
     
     #### Result Display & Save ####
     # Holdout FPCA Plots
@@ -205,12 +202,10 @@ if __name__ == "__main__":
     print(f"Training Gap Recall: {tg_recall}")
     print(f"Training Gap Density: {tg_density}")
     print(f"Training Gap Coverage: {tg_coverage}")
-    print(f"Training Gap Geometric score: {tg_geometric_score}")
     print(f"Synthetic Gap Precision: {sg_precision}")
     print(f"Synthetic Gap Recall: {sg_recall}")
     print(f"Synthetic Gap Density: {sg_density}")
     print(f"Synthetic Gap Coverage: {sg_coverage}")
-    print(f"Synthetic Gap Geometric score: {sg_geometric_score}")
 
     # Real vs. Synthetic FPC score matrix fidelity
     print(f"Real vs. Synthetic MMD distance: {rs_mmd}")
@@ -222,4 +217,3 @@ if __name__ == "__main__":
     print(f"Real vs. Synthetic Recall: {rs_recall}")
     print(f"Real vs. Synthetic Density: {rs_density}")
     print(f"Real vs. Synthetic Coverage: {rs_coverage}")
-    print(f"Real vs. Synthetic Geometric score: {rs_geometric_score}")
