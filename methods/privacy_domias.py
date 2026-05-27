@@ -1,11 +1,6 @@
 """
 Leveraging the concept of DOMIAS and compute local density ratio. 
 """
-import sys
-from pathlib import Path
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 import numpy as np
 from sklearn.model_selection import train_test_split

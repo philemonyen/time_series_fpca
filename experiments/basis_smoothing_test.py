@@ -5,15 +5,9 @@ To run this Hyperparameter Tuning Visualization, ensure to adjust preprocess.bas
 to comment out line 109 and uncomment line 113
 """
 
-import sys
-from pathlib import Path
-# Project root (parent of experiments/) so `methods` resolves when run as a script
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 from methods.preprocess import basis_smoothing_with_lambda
 from methods.utils import get_sr, extract_ecg_clinical_landmarks, load_dataset
 

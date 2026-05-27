@@ -1,15 +1,10 @@
-import sys
-from pathlib import Path
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import Isomap
 from sklearn.neighbors import kneighbors_graph
 from scipy.sparse.csgraph import connected_components
 from kneed import KneeLocator
+from pathlib import Path
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from methods.fpca import fpca_with_param
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
