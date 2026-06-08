@@ -10,3 +10,4 @@ tabulate
 kneed
 seaborn
 gudhi
+POT

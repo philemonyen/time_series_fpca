@@ -59,14 +59,14 @@ def get_data():
 
 #### ---- Load Dataset ---- ####
 def load_dataset(diagnostic, sampling_rate, lead=None):
-    data = np.load(f"../data/{diagnostic}_{sampling_rate}.npy")
+    data = np.load(f"data/{diagnostic}_{sampling_rate}.npy")
     if lead is not None:
         data = data[:, lead, :]
     return data
 
 def load_synthetic_dataset(diagnostic, lead):
-    data = np.load("../data/synthetic_final.npy")
-    label = np.load("../data/synthetic_final_labels.npy")
+    data = np.load("data/synthetic_final.npy")
+    label = np.load("data/synthetic_final_labels.npy")
 
     class_index = np.where(diagnostics == diagnostic)[0][0]
     mask = (label[:, class_index] == 1)
