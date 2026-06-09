@@ -120,6 +120,40 @@ if __name__ == "__main__":
     rs_iso_internal_geometry = internal_geometry(isomap_real.dist_matrix_, isomap_synthetic.dist_matrix_)
 
     #### ------ Results ------ ####
+    #### FPCA Plots
+    for i, c in enumerate(holdout_fpca_components):
+        c.plot()
+        plt.xlabel("Time (s)")
+        plt.ylabel("Voltage (mV)")
+        plt.title(f"Holdout FPC {i+1}")
+        plt.savefig(save_path + f"holdout_fpc_{i+1}.png")
+        plt.close()
+    holdout_aligned_fd.plot()
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.title("Smoothed Aligned Holdout Signal")
+    plt.savefig(save_path + "smoothed_holdout.png")
+    plt.close()
+    real_aligned_fd.plot()
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.title("Smoothed Aligned Real Signal")
+    plt.savefig(save_path + "smoothed_real.png")
+    plt.close()
+    synthetic_aligned_fd.plot()
+    plt.xlabel("Time (s)")
+    plt.ylabel("Voltage (mV)")
+    plt.title("Smoothed Aligned Synthetic Signal")
+    plt.savefig(save_path + "smoothed_synthetic.png")
+    plt.close()
+
+    print(f"Holdout FPC Variance Ratio: {np.sum(holdout_fpca_var_ratio)}")
+
+    #### Isomap Hyperparameter Settings
+    print(f"Holdout Isomap Optimal k: {optimal_k_holdout}, Optimal dim: {optimal_dim_holdout}")
+    print(f"Real Isomap Optimal k: {optimal_k_real}, Optimal dim: {optimal_dim_real}")
+    print(f"Synthetic Isomap Optimal k: {optimal_k_synthetic}, Optimal dim: {optimal_dim_synthetic}")
+    
     #### Tables
     column = ["Metric", "Training Gap", "Synthetic Gap", "Real vs. Synthetic"]
     table = [
