@@ -201,7 +201,6 @@ def gromov_wasserstein(X_holdout_iso, X_synth_iso):
     
     # 3. Compute the Gromov-Wasserstein distance
     # 'square_loss' is the standard loss function for GW
-    print("Calculating optimal transport plan... (This may take a moment)")
     gw_dist = ot.gromov.gromov_wasserstein2(C_real, C_synth, p, q, 'square_loss')
     
     return gw_dist

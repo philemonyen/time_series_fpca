@@ -25,6 +25,7 @@ if __name__ == "__main__":
     save_path = f"images/global_fidelity/"
     path=Path(save_path)
     path.mkdir(parents=True, exist_ok=True)
+    np.random.seed(42)
 
     #### Data Preparation ####
     # Get Real Data & Holdout Data

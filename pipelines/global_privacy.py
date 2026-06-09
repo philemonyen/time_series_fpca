@@ -21,7 +21,7 @@ if __name__ == "__main__":
     landmark_locations = np.linspace(0, 1, n_beats+2)[1:-1]
 
     # Result save path
-    save_path = f"../images/privacy/"
+    save_path = f"../images/global_privacy/"
     path=Path(save_path)
     path.mkdir(parents=True, exist_ok=True)
     np.random.seed(42)
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     synthetic_fd = trimmed_synthetic_fd[:n_data]
     synthetic_landmarks = synthetic_landmarks_all[:n_data]
 
-    ### FPCA & Isomap on Holdout Data ###
+    ### FPCA on Holdout Data ###
     # Apply FPCA on holdout dataset
     lambda_ = basis_smoothing_hyperparameter_tuning(holdout_fd, n_basis, domain_range)
     holdout_fd_smooth, _, _, _ = basis_smoothing_with_lambda(holdout_fd, lambda_, n_basis, domain_range)
