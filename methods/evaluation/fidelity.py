@@ -5,8 +5,10 @@ from scipy.stats import ks_2samp
 from sklearn.neighbors import NearestNeighbors
 from scipy.spatial.distance import cdist
 from sklearn.metrics.pairwise import rbf_kernel
+from sklearn.cluster import HDBSCAN
+from scipy.spatial import distance
 
-#### Distribution-wise Evaluation ####
+#### Macro-Fidelity ####
 def mmd_distance(X, Y, gamma=None):
     """
     Computes the True Maximum Mean Discrepancy using an RBF kernel.
@@ -49,6 +51,28 @@ def frechet_wasserstein(X, Y):
     
     return np.sqrt(mean_term + covariance_term)
 
+def covariance_operator_dist(X, Y):
+    """
+    Computes the distance between the covariance operators (matrices) 
+    of the FPC scores using the Frobenius Norm.
+    """
+    # rowvar=False means columns are variables (PCs), rows are samples
+    cov_X = np.cov(X, rowvar=False)
+    cov_Y = np.cov(Y, rowvar=False)
+    
+    # Compute the Frobenius norm of the difference matrix
+    return np.linalg.norm(cov_X - cov_Y, ord='fro')
+
+## FPC-wise Evaluation
+def kolmogorov_smirnov(real_iso, synth_iso):
+    result = []
+    for i in range(real_iso.shape[1]):
+        stat, pval = ks_2samp(real_iso[:, i], synth_iso[:, i])
+        result.append(stat)
+    return result
+
+
+#### Micro-Fidelity ####
 k_list = [3, 5, 10, 30, 50, 100]
 def compute_prdc(real_features, fake_features):
     """
@@ -113,15 +137,6 @@ def compute_prdc(real_features, fake_features):
 
     return precisions, recalls, densities, coverages, ks
 
-## Component-wise Evaluation ##
-def kolmogorov_smirnov(real_iso, synth_iso):
-    result = []
-    for i in range(real_iso.shape[1]):
-        stat, pval = ks_2samp(real_iso[:, i], synth_iso[:, i])
-        result.append(stat)
-    return result
-
-## Sample-wise Evaluation ##
 def local_mixing_ratio(real_iso, synth_iso):
     """
     Computes the local mixing ratio of real data in synthetic neighborhoods.
@@ -156,20 +171,7 @@ def local_mixing_ratio(real_iso, synth_iso):
         ratios.append(np.mean(real_ratios))
     return ratios, baseline, ks
 
-#### For FPC score matrix similarity
-def covariance_operator_dist(X, Y):
-    """
-    Computes the distance between the covariance operators (matrices) 
-    of the FPC scores using the Frobenius Norm.
-    """
-    # rowvar=False means columns are variables (PCs), rows are samples
-    cov_X = np.cov(X, rowvar=False)
-    cov_Y = np.cov(Y, rowvar=False)
-    
-    # Compute the Frobenius norm of the difference matrix
-    return np.linalg.norm(cov_X - cov_Y, ord='fro')
-
-
+#### Nonlinear Fidelity ####
 def gromov_wasserstein(X_holdout_iso, X_synth_iso):
     """
     Calculates the Gromov-Wasserstein distance between two independent embeddings.
@@ -213,6 +215,128 @@ def internal_geometry(X, Y):
     X_flat = X[np.triu_indices(X.shape[0], k=1)]
     Y_flat = Y[np.triu_indices(Y.shape[0], k=1)]
     return ot.emd2_1d(X_flat, Y_flat)
+
+#### Meso-Fidelity ####
+def tune_hdbscan_min_cluster_size(X, size_grid):
+    """
+    Sweeps through min_cluster_size values to find the stability plateau 
+    on the Holdout UMAP manifold.
+    """
+
+    size_grid = np.arange(10, int(X.shape[0] / 50), 5)
+    
+    results = []
+    
+    for size in size_grid:
+        # Fit HDBSCAN on the Holdout space
+        clusterer = HDBSCAN(min_cluster_size=size)
+        labels = clusterer.fit_predict(X)
+        
+        # Calculate key stability metrics
+        total_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        noise_points = np.sum(labels == -1)
+        noise_ratio = noise_points / len(labels)
+        
+        results.append({
+            'min_cluster_size': size,
+            'clusters': total_clusters,
+            'noise_ratio': noise_ratio
+        })
+        
+    return results
+
+def evaluate_meso_fidelity(X_holdout_umap, X_real_umap, X_synth_umap, min_cluster_size=15):
+    """
+    Evaluates local sub-phenotype structure fidelity using HDBSCAN on a shared UMAP space.
+    
+    Parameters:
+    X_holdout_umap  : ndarray (N, 2) - UMAP coordinates of Holdout set (The Referee)
+    X_real_umap     : ndarray (N, 2) - UMAP coordinates of Real Training set
+    X_synth_umap    : ndarray (N, 2) - UMAP coordinates of Synthetic set
+    min_cluster_size: int            - Minimum size for a group to be considered a cluster
+    
+    Returns:
+    metrics : dict - Dictionary containing Mode Coverage, JS Divergence, and Noise Ratios.
+    mode coverage: 
+    """
+    
+    # 1. Fit HDBSCAN strictly on the Holdout UMAP space
+    print("Discovering sub-phenotypes on Holdout manifold...")
+    clusterer = HDBSCAN(min_cluster_size=min_cluster_size, store_centers='centroid')
+    holdout_labels = clusterer.fit_predict(X_holdout_umap)
+    
+    # Identify valid clusters (excluding noise label -1)
+    unique_clusters = [c for c in np.unique(holdout_labels) if c != -1]
+    num_holdout_clusters = len(unique_clusters)
+    print(f" -> Found {num_holdout_clusters} distinct sub-phenotype clusters in Holdout set.")
+    
+    # 2. Assign Real and Synthetic points to Holdout clusters via nearest centroid
+    # HDBSCAN doesn't have a native .predict() for new data, so we map to the closest cluster centroid
+    centroids = clusterer.centroids_
+    
+    def assign_to_centroids(X_umap):
+        # Calculate Euclidean distance from every point to every cluster centroid
+        distances = cdist(X_umap, centroids, metric='euclidean')
+        # Assign to closest centroid label
+        closest_centroid_idx = np.argmin(distances, axis=1)
+        labels = np.array([unique_clusters[idx] for idx in closest_centroid_idx])
+        
+        # Outlier safety check: If a point is excessively far from all centroids, 
+        # or if HDBSCAN flagged its neighborhood, it remains unassigned (-1)
+        # For simplicity in population tracking, we treat them as out-of-bounds noise.
+        return labels
+
+    real_labels = assign_to_centroids(X_real_umap)
+    synth_labels = assign_to_centroids(X_synth_umap)
+    
+    # For a pure noise calculation, we also look at how many points fall into sparse zones
+    # based on the original HDBSCAN configuration if needed, but centroid mapping is robust.
+    
+    # 3. Calculate METRIC A: Mode Coverage
+    unique_synth_clusters = np.unique(synth_labels)
+    captured_modes = [c for c in unique_clusters if c in unique_synth_clusters]
+    mode_coverage = len(captured_modes) / num_holdout_clusters
+    
+    # 4. Calculate METRIC B: Population Proportion & Jensen-Shannon Divergence
+    def get_proportion_vector(labels, all_clusters):
+        counts = {c: np.sum(labels == c) for c in all_clusters}
+        total = sum(counts.values())
+        # Convert to probability distribution
+        return np.array([counts[c] / total if total > 0 else 0 for c in all_clusters])
+    
+    holdout_dist = get_proportion_vector(holdout_labels, unique_clusters)
+    real_dist = get_proportion_vector(real_labels, unique_clusters)
+    synth_dist = get_proportion_vector(synth_labels, unique_clusters)
+    
+    # Jensen-Shannon Divergence (0.0 = identical distributions, 1.0 = completely disjoint)
+    js_real_vs_synth = distance.jensenshannon(real_dist, synth_dist)
+    js_holdout_vs_synth = distance.jensenshannon(holdout_dist, synth_dist)
+    
+    # 5. Calculate METRIC C: Outlier / Noise Ratios
+    # Points flagged by HDBSCAN as -1 in the original fit represent background noise
+    holdout_noise_ratio = np.sum(holdout_labels == -1) / len(holdout_labels)
+    
+    # Synthetics that land completely outside the convex hulls of known clusters
+    # We approximate this by checking if they are further than a threshold from any centroid
+    max_holdout_dist = np.max(cdist(X_holdout_umap, centroids))
+    synth_dists_to_centroids = cdist(X_synth_umap, centroids)
+    min_synth_dists = np.min(synth_dists_to_centroids, axis=1)
+    synth_noise_ratio = np.sum(min_synth_dists > (max_holdout_dist * 1.1)) / len(X_synth_umap)
+
+    metrics = {
+        "num_baseline_clusters": num_holdout_clusters,
+        "mode_coverage_ratio": mode_coverage,
+        "js_divergence_holdout_vs_synthetic": js_holdout_vs_synth,
+        "js_divergence_real_vs_synthetic": js_real_vs_synth,
+        "holdout_noise_ratio": holdout_noise_ratio,
+        "synthetic_outlier_ratio": synth_noise_ratio,
+        "distributions": {
+            "holdout": holdout_dist.tolist(),
+            "synthetic": synth_dist.tolist()
+        }
+    }
+    
+    return metrics
 
 
 # ------ Appendix ------- #

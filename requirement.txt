@@ -11,3 +11,4 @@ kneed
 seaborn
 gudhi
 POT
+umap-learn

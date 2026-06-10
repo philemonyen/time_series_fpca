@@ -5,9 +5,9 @@ from sklearn.manifold import Isomap
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.fpca import fpca_with_param
-from methods.isomap import find_optimal_k, find_optimal_manifold_dim
-from methods.fidelity_evaluation import mmd_distance, frechet_wasserstein, covariance_operator_dist, compute_prdc, kolmogorov_smirnov, local_mixing_ratio, gromov_wasserstein, internal_geometry
+from methods.transformation.fpca import fpca_with_param
+from methods.transformation.isomap import find_optimal_k, find_optimal_manifold_dim
+from methods.evaluation.fidelity import mmd_distance, frechet_wasserstein, covariance_operator_dist, compute_prdc, kolmogorov_smirnov, local_mixing_ratio, gromov_wasserstein, internal_geometry
 
 if __name__ == "__main__":
     diagnostic = "NORM"
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
     synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, lambda_, n_basis, domain_range)
     synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks, landmark_locations)
-    synthetic_scores = holdout_fpca_.transform(synthetic_fd)
+    synthetic_scores = holdout_fpca_.transform(synthetic_aligned_fd)
     
     # Apply Isomap on holdout, real, and synthetic FPC scores separately
     optimal_k_holdout = find_optimal_k(holdout_fpca_scores)

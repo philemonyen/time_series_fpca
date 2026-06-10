@@ -4,9 +4,9 @@ from sklearn.manifold import Isomap
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.fpca import fpca_with_param
-from methods.isomap import find_optimal_k, find_optimal_manifold_dim
-from methods.privacy_domias import domias_vectorized_kde, domias_subspace_mahalanobis, full_knowledge_mia
+from methods.transformation.fpca import fpca_with_param
+from methods.transformation.isomap import find_optimal_k, find_optimal_manifold_dim
+from methods.evaluation.privacy import domias_vectorized_kde, domias_subspace_mahalanobis, full_knowledge_mia
 
 if __name__ == "__main__":
     diagnostic = "NORM"
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     # Apply Holdout FPCA and Isomap on Synthetic
     synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, lambda_, n_basis, domain_range)
     synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks, landmark_locations)
-    synthetic_scores = holdout_fpca_.transform(synthetic_fd)
+    synthetic_scores = holdout_fpca_.transform(synthetic_aligned_fd)
     synthetic_embedding = isomap_holdout.transform(synthetic_scores)
 
     ### DOMIAS Density Ratio Privacy Evaluation###
