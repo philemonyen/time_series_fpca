@@ -1,12 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.manifold import Isomap
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from methods.transformation.fpca import fpca_with_param
-from methods.transformation.isomap import find_optimal_k, find_optimal_manifold_dim
-from methods.evaluation.privacy import domias_vectorized_kde, domias_subspace_mahalanobis, full_knowledge_mia
+from methods.transformation.kpca import tune_gamma, tuning_n_components, kpca_with_param
+from methods.evaluation.privacy import domias, full_knowledge_mia
 
 if __name__ == "__main__":
     diagnostic = "NORM"
@@ -21,7 +20,7 @@ if __name__ == "__main__":
     landmark_locations = np.linspace(0, 1, n_beats+2)[1:-1]
 
     # Result save path
-    save_path = f"../images/global_privacy/"
+    save_path = f"images/global_privacy/"
     path=Path(save_path)
     path.mkdir(parents=True, exist_ok=True)
     np.random.seed(42)
@@ -59,52 +58,71 @@ if __name__ == "__main__":
     holdout_fpca_mean, holdout_fpca_components, holdout_fpca_scores, holdout_fpca_var_ratio, holdout_fpca_ = fpca_with_param(holdout_aligned_fd, n_components)
 
     # Apply Isomap on holdout FPC scores
-    optimal_k_holdout = find_optimal_k(holdout_fpca_scores)
-    optimal_dim_holdout = find_optimal_manifold_dim(holdout_fpca_scores, optimal_k_holdout)
-    isomap_holdout = Isomap(n_neighbors=optimal_k_holdout, n_components=optimal_dim_holdout)
-    holdout_embedding = isomap_holdout.fit_transform(holdout_fpca_scores)
+    optimal_gamma_holdout = tune_gamma(holdout_fpca_scores)
+    optimal_dim_holdout = tuning_n_components(holdout_fpca_scores, optimal_gamma_holdout)
+    holdout_embedding, holdout_kpca_ = kpca_with_param(holdout_fpca_scores, optimal_dim_holdout, optimal_gamma_holdout)
 
-    ### Apply Holdout FPCA and Isomap on Real & Synthetic ###
-    # Apply Holdout FPCA and Isomap on Real
+    ### Apply Holdout FPCA and kPCA on Real & Synthetic ###
+    # Apply Holdout FPCA and kPCA on Real
     real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)
     real_aligned_fd, _ = landmark_registration(real_fd_smooth, real_landmarks, landmark_locations)
     real_scores = holdout_fpca_.transform(real_aligned_fd)
-    real_embedding = isomap_holdout.transform(real_scores)
+    real_embedding = holdout_kpca_.transform(real_scores)
 
-    # Apply Holdout FPCA and Isomap on Synthetic
+    # Apply Holdout FPCA and kPCA on Synthetic
     synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, lambda_, n_basis, domain_range)
     synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks, landmark_locations)
     synthetic_scores = holdout_fpca_.transform(synthetic_aligned_fd)
-    synthetic_embedding = isomap_holdout.transform(synthetic_scores)
+    synthetic_embedding = holdout_kpca_.transform(synthetic_scores)
 
-    ### DOMIAS Density Ratio Privacy Evaluation###
-    # Compute FPC Density Ratio #
-    fpc_density_ratio = domias_subspace_mahalanobis(synthetic_scores, real_scores, holdout_fpca_scores)
+    ### DOMIAS Density Ratio Privacy Evaluation ###
+    # Compute FPC Score and kPCA EmbeddingDensity Ratio #
+    fpc_density_ratio = domias(holdout_fpca_scores, real_scores, synthetic_scores)
+    kPCA_density_ratio = domias(holdout_embedding, real_embedding, synthetic_embedding)
+
+    ### Result Display ###
+    bandwidth_grid = list(fpc_density_ratio.keys())
+
+    # FPC Score Results
+    avg_fpc_privacy = []
+    for bandwidth, score in fpc_density_ratio.items():
+        avg= np.mean(score > 0)
+        avg_fpc_privacy.append(avg)
+
+        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+        plt.xlabel('Log Density Ratio')
+        plt.ylabel('Frequency (Count)')
+        plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f})')
+        plt.savefig(save_path + f'fpc_density_ratio_{bandwidth:.3f}.png')
+        plt.close()
+
+    plt.plot(bandwidth_grid, avg_fpc_privacy)
+    plt.xlabel('Bandwidth')
+    plt.ylabel('Log Density Ratio')
+    plt.title('Log FPC Density Ratio vs. Kernel Bandwidth')
+    plt.savefig(save_path + 'fpc_density_ratio_vs_bandwidth.png')
+    plt.close()
     
-    # Compute Isomap Embedding Density Ratio #
-    isomap_density_ratio = domias_vectorized_kde(synthetic_embedding, real_embedding, holdout_embedding)
-
-    # Proportion of Density Ratio > 1 #
-    avg_fpc_privacy= np.mean(fpc_density_ratio > 1)
-    avg_isomap_privacy = np.mean(isomap_density_ratio > 1)
-    print(f"Proportion of FPC DOMIAS Density Ratio > 1: {avg_fpc_privacy}")
-    print(f"Proportion of Isomap DOMIAS Density Ratio > 1: {avg_isomap_privacy}")
-
-    # Density Ratio plot #
-    log_fpc_density_ratio = np.log(fpc_density_ratio)
-    log_isomap_density_ratio = np.log(isomap_density_ratio)
-
-    plt.hist(log_fpc_density_ratio, bins=50, color='skyblue', edgecolor='black')
-    plt.xlabel('Log Density Ratio')
-    plt.ylabel('Frequency (Count)')
-    plt.title('Distribution of Log FPC Density Ratio')
-    plt.savefig(save_path + 'fpc_density_ratio.png')
-
-    plt.hist(log_isomap_density_ratio, bins=50, color='skyblue', edgecolor='black')
-    plt.xlabel('Log Density Ratio')
-    plt.ylabel('Frequency (Count)')
-    plt.title('Distribution of Log Isomap Density Ratio')
-    plt.savefig(save_path + 'isomap_density_ratio.png')
+    # kPCA Embedding Density Ratio Results
+    bandwidth_grid = list(kPCA_density_ratio.keys())
+    avg_kPCA_privacy = []
+    for bandwidth, score in kPCA_density_ratio.items():
+        avg = np.mean(score > 0)
+        avg_kPCA_privacy.append(avg)
+    
+        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+        plt.xlabel('Log Density Ratio')
+        plt.ylabel('Frequency (Count)')
+        plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f})')
+        plt.savefig(save_path + f'kPCA_density_ratio_{bandwidth:.3f}.png')
+        plt.close()
+    
+    plt.plot(bandwidth_grid, avg_kPCA_privacy)
+    plt.xlabel('Bandwidth')
+    plt.ylabel('Log Density Ratio')
+    plt.title('Log kPCA Density Ratio vs. Kernel Bandwidth')
+    plt.savefig(save_path + 'kPCA_density_ratio_vs_bandwidth.png')
+    plt.close()
 
     ### Full Knowledge MIA Privacy Evaluation ###
     real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)

@@ -257,7 +257,6 @@ def evaluate_meso_fidelity(X_holdout_umap, X_real_umap, X_synth_umap, min_cluste
     
     Returns:
     metrics : dict - Dictionary containing Mode Coverage, JS Divergence, and Noise Ratios.
-    mode coverage: 
     """
     
     # 1. Fit HDBSCAN strictly on the Holdout UMAP space

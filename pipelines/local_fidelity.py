@@ -27,23 +27,9 @@ if __name__ == "__main__":
     np.random.seed(42)
 
     #### Data Preparation ####
-    # Get Real Data & Holdout Data
+    # Get Real Data
     real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
     trimmed_real_fd, real_landmarks_all = extract_ecg_clinical_landmarks(real_all, n_beats, sr)
-
-    n_samples = trimmed_real_fd.data_matrix.shape[0]
-    if n_samples < 2 * n_data:
-        raise ValueError(
-            f"Need at least {2 * n_data} samples, got {n_samples} after landmark extraction."
-        )
-    sampled_idx = np.random.choice(n_samples, size=2 * n_data, replace=False)
-    real_idx = sampled_idx[:n_data]
-    holdout_idx = sampled_idx[n_data:]
-
-    real_fd = trimmed_real_fd[real_idx]
-    real_landmarks = real_landmarks_all[real_idx]
-    holdout_fd = trimmed_real_fd[holdout_idx]
-    holdout_landmarks = real_landmarks_all[holdout_idx]
 
     # Get Synthetic Data
     synthetic_all = load_synthetic_dataset(diagnostic, lead)
@@ -52,28 +38,25 @@ if __name__ == "__main__":
     synthetic_landmarks = synthetic_landmarks_all[:n_data]
 
     #### Transformation ####
-    # Apply FPCA on holdout dataset
-    lambda_ = basis_smoothing_hyperparameter_tuning(holdout_fd, n_basis, domain_range)
-    holdout_fd_smooth, _, _, _ = basis_smoothing_with_lambda(holdout_fd, lambda_, n_basis, domain_range)
-    holdout_aligned_fd, _ = landmark_registration(holdout_fd_smooth, holdout_landmarks, landmark_locations)
-    holdout_fpca_mean, holdout_fpca_components, holdout_fpca_scores, holdout_fpca_var_ratio, holdout_fpca_ = fpca_with_param(holdout_aligned_fd, n_components)
+    # Apply FPCA on Real dataset
+    lambda_ = basis_smoothing_hyperparameter_tuning(trimmed_real_fd, n_basis, domain_range)
+    real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(trimmed_real_fd, lambda_, n_basis, domain_range)
+    real_aligned_fd, _ = landmark_registration(real_fd_smooth, real_landmarks_all, landmark_locations)
+    real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(real_aligned_fd, n_components)
 
-    # Apply UMAP on holdout FPCA scores
-    holdout_umap = tune_umap(holdout_fpca_scores)
-
-    # Apply Holdout FPCA on Real & Synthetic
-    real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)
-    real_aligned_fd, _ = landmark_registration(real_fd_smooth, real_landmarks, landmark_locations)
-    real_scores = holdout_fpca_.transform(real_aligned_fd)
-
-    synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, lambda_, n_basis, domain_range)
-    synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks, landmark_locations)
-    synthetic_scores = holdout_fpca_.transform(synthetic_fd)
+    # Apply Real FPCA on Synthetic
+    synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(trimmed_synthetic_fd, lambda_, n_basis, domain_range)
+    synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks_all, landmark_locations)
+    synthetic_scores = real_fpca_.transform(synthetic_aligned_fd)
 
     # Apply UMAP on Real & Synthetic FPCA scores
-    real_umap = holdout_umap.transform(real_scores)
-    synthetic_umap = holdout_umap.transform(synthetic_scores)
-
+    real_umap = tune_umap(real_scores)
+    real_umap_vec = real_umap.transform(real_scores)
+    synthetic_umap_vec = real_umap.transform(synthetic_scores)
     #### ------ Fidelity Evaluation ------ ####
-    meso_fidelity = evaluate_meso_fidelity(holdout_umap, real_umap, synthetic_umap)
-    
+    meso_fidelity = evaluate_meso_fidelity(real_umap_vec, synthetic_umap_vec)
+    print(f"Mode Coverage: {meso_fidelity['mode_coverage_ratio']}")
+    print(f"JS Divergence Holdout vs Synthetic: {meso_fidelity['js_divergence_holdout_vs_synthetic']}")
+    print(f"JS Divergence Real vs Synthetic: {meso_fidelity['js_divergence_real_vs_synthetic']}")
+    print(f"Holdout Noise Ratio: {meso_fidelity['holdout_noise_ratio']}")
+    print(f"Synthetic Outlier Ratio: {meso_fidelity['synthetic_outlier_ratio']}")

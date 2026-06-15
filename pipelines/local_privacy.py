@@ -71,11 +71,12 @@ if __name__ == "__main__":
     synthetic_scores = holdout_fpca_.transform(synthetic_fd)
 
     # Apply UMAP on Real & Synthetic FPCA scores
-    real_umap = holdout_umap.transform(real_scores)
-    synthetic_umap = holdout_umap.transform(synthetic_scores)
+    holdout_umap_vec = holdout_umap.transform(holdout_fpca_scores)
+    real_umap_vec = holdout_umap.transform(real_scores)
+    synthetic_umap_vec = holdout_umap.transform(synthetic_scores)
 
     #### ------ Privacy Evaluation ------ ####
-    umap_density_ratio = domias_vectorized_kde(synthetic_umap, real_umap, holdout_umap)
+    umap_density_ratio = domias_vectorized_kde(synthetic_umap_vec, real_umap_vec, holdout_umap_vec)
     avg_umap_privacy = np.mean(umap_density_ratio > 1)
     print(f"Proportion of UMAP DOMIAS Density Ratio > 1: {avg_umap_privacy}")
 

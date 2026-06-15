@@ -3,9 +3,38 @@ Leveraging the concept of DOMIAS and compute local density ratio.
 """
 
 import numpy as np
+from sklearn.neighbors import KernelDensity
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics.pairwise import euclidean_distances
+
+def domias(reference, real, synthetic):
+    std_devs = np.std(real, axis=0)
+    h_upper_bound = np.max(std_devs)
+    pairwise_dists = euclidean_distances(real)
+    non_zero_dists = pairwise_dists[pairwise_dists > 0]
+    h_lower_bound = np.percentile(non_zero_dists, 1)
+
+    bandwidth_grid = np.logspace(
+        np.log10(h_lower_bound), 
+        np.log10(h_upper_bound), 
+        num=10
+    )
+
+    domias_scores = {}
+
+    for bandwidth in bandwidth_grid:
+        kde_ref = KernelDensity(kernel='gaussian', bandwidth=bandwidth)
+        kde_ref.fit(reference)
+        kde_real = KernelDensity(kernel='gaussian', bandwidth=bandwidth)
+        kde_real.fit(real)
+        log_density_ref = kde_ref.score_samples(synthetic)
+        log_density_real = kde_real.score_samples(synthetic)
+        domias_score = log_density_real - log_density_ref
+        domias_scores[bandwidth] = domias_score
+
+    return domias_scores
 
 def compute_bandwidth(X_ref, rule="silverman"):
     """
@@ -23,74 +52,6 @@ def compute_bandwidth(X_ref, rule="silverman"):
         return factor * (N ** (-1 / (d + 4))) * sigma_bar
     else:
         raise ValueError("Unknown rule. Choose 'scott' or 'silverman'.")
-
-
-def domias_vectorized_kde(X_synthetic, X_real, X_holdout, h=None):
-    """
-    Non-Parametric Matrix-Vectorized Algebraic KDE
-    Evaluates density ratios of X_synthetic points against X_real vs X_holdout distributions.
-    Safe against high-dimensions (d) via log-space scaling calculations.
-    """
-    N_synthetic, d = X_synthetic.shape
-    N_real = X_real.shape[0]
-    N_holdout = X_holdout.shape[0]
-    
-    if h is None:
-        h = compute_bandwidth(X_real, rule="silverman")
-        
-    # Pairwise Squared Euclidean Distances
-    dist_real = (np.sum(X_synthetic**2, axis=1, keepdims=True) + 
-                 np.sum(X_real**2, axis=1) - 
-                 2 * np.dot(X_synthetic, X_real.T))
-    
-    dist_holdout = (np.sum(X_synthetic**2, axis=1, keepdims=True) + 
-                    np.sum(X_holdout**2, axis=1) - 
-                    2 * np.dot(X_synthetic, X_holdout.T))
-    
-    # FIX: Compute Normalization in Log-Space to prevent float explosion/collapse
-    log_norm_real = np.log(N_real) + (d / 2.0) * np.log(2.0 * np.pi * (h**2))
-    log_norm_holdout = np.log(N_holdout) + (d / 2.0) * np.log(2.0 * np.pi * (h**2))
-    
-    # Sum over the kernel transformations
-    sum_kernel_real = np.sum(np.exp(-dist_real / (2.0 * h**2)), axis=1)
-    sum_kernel_holdout = np.sum(np.exp(-dist_holdout / (2.0 * h**2)), axis=1)
-    
-    # Compute final densities securely (adding epsilon to log inputs to prevent log(0))
-    p_real = np.exp(np.log(sum_kernel_real + 1e-300) - log_norm_real)
-    p_holdout = np.exp(np.log(sum_kernel_holdout + 1e-300) - log_norm_holdout)
-    
-    # Density Ratio Calculation 
-    density_ratio = p_real / (p_holdout + 1e-10)
-    return density_ratio
-
-
-def domias_subspace_mahalanobis(X_synthetic, X_real, X_holdout):
-    """
-    Parametric Subspace Mahalanobis Density Ratio
-    Exploits orthogonal/uncorrelated coordinate properties of FPC matrices.
-    Used for FPC score matrix density ratio computation
-    """
-    # Compute parametric properties of the training subspace
-    mu_real = np.mean(X_real, axis=0)
-    var_real = np.var(X_real, axis=0) + 1e-8 # stability buffer
-    
-    # Compute parametric properties of the holdout subspace
-    mu_holdout = np.mean(X_holdout, axis=0)
-    var_holdout = np.var(X_holdout, axis=0) + 1e-8
-    
-    # Part 1: Log determinant ratio term 0.5 * sum(log(var_holdout / var_train))
-    log_det_term = 0.5 * np.sum(np.log(var_holdout / var_real))
-    
-    # Part 2: Distance differences for each target coordinate vector
-    # Broadcast subtraction across rows of X_eval
-    sq_mahalanobis_holdout = np.sum(((X_synthetic - mu_holdout) ** 2) / var_holdout, axis=1)
-    sq_mahalanobis_real = np.sum(((X_synthetic - mu_real) ** 2) / var_real, axis=1)
-    
-    # Combine terms to get final log ratio profile
-    log_density_ratio = log_det_term + 0.5 * (sq_mahalanobis_holdout - sq_mahalanobis_real)
-    
-    # Exponentiate to return to regular ratio scale R(x)
-    return np.exp(log_density_ratio)
 
 def compute_bce_loss(y_true, y_pred, eps=1e-15):
     """
