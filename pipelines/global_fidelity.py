@@ -50,7 +50,7 @@ if __name__ == "__main__":
     synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks_all, landmark_locations)
     synthetic_scores = real_fpca_.transform(synthetic_aligned_fd)
     
-    # Apply Isomap on holdout, real, and synthetic FPC scores separately
+    # Apply Isomap on real and synthetic FPC scores separately
     optimal_k_real = find_optimal_k(real_scores)
     optimal_dim_real = find_optimal_manifold_dim(real_scores, optimal_k_real)
     isomap_real = Isomap(n_neighbors=optimal_k_real, n_components=optimal_dim_real)

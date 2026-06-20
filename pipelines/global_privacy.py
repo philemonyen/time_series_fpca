@@ -57,7 +57,7 @@ if __name__ == "__main__":
     holdout_aligned_fd, _ = landmark_registration(holdout_fd_smooth, holdout_landmarks, landmark_locations)
     holdout_fpca_mean, holdout_fpca_components, holdout_fpca_scores, holdout_fpca_var_ratio, holdout_fpca_ = fpca_with_param(holdout_aligned_fd, n_components)
 
-    # Apply Isomap on holdout FPC scores
+    # Apply kPCA on holdout FPC scores
     optimal_gamma_holdout = tune_gamma(holdout_fpca_scores)
     optimal_dim_holdout = tuning_n_components(holdout_fpca_scores, optimal_gamma_holdout)
     holdout_embedding, holdout_kpca_ = kpca_with_param(holdout_fpca_scores, optimal_dim_holdout, optimal_gamma_holdout)
