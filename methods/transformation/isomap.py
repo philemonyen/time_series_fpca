@@ -5,7 +5,7 @@ from sklearn.neighbors import kneighbors_graph
 from scipy.sparse.csgraph import connected_components
 from kneed import KneeLocator
 
-def find_optimal_k(X, max_k=200):
+def find_optimal_k(X, max_k=50):
     min_k = None
 
     for k in range(2, max_k + 1):

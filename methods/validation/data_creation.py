@@ -13,25 +13,53 @@ def create_low_fidelity_dataset(real_data_fd, noise_multiplier=1.5):
 
     return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points)
 
-def create_mode_collapse_dataset(real_data_fd, real_landmarks, num_templates=5, copies_per_template=100):
+def create_mode_collapse_dataset(real_data_fd, real_landmarks, num_modes=5, target_size=500, spike_ratio=0.10):
     """
-    Forces a massive regional density spike (macro-scale privacy failure).
+    Creates a dataset exhibiting mode collapse by forcing regional density spikes 
+    while maintaining a fixed total population size.
     """
-    # 1. Randomly select 5 "template" heartbeats
     real_data = real_data_fd.data_matrix.squeeze()
-    template_indices = np.random.choice(real_data.shape[0], size=num_templates, replace=False)
-    templates = real_data[template_indices]
-    templates_landmarks = real_landmarks[template_indices]
+    total_real_samples = real_data.shape[0]
     
-    # 2. Duplicate them
-    # np.repeat copies each row 'copies_per_template' times consecutively
-    collapsed_data = np.repeat(templates, copies_per_template, axis=0)
-    collapsed_landmarks = np.repeat(templates_landmarks, copies_per_template, axis=0)
-    # 3. Add microscopic noise (0.5% of std) so points aren't perfectly identical
+    # Calculate partition sizes
+    spike_size = int(target_size * spike_ratio) # e.g., 500 * 0.10 = 50 copies per mode
+    total_spike_samples = num_modes * spike_size
+    remaining_samples = target_size - total_spike_samples
+    
+    if total_spike_samples > target_size:
+        raise ValueError("Total spike samples exceed target dataset size. Reduce num_modes or spike_ratio.")
+    if remaining_samples > (total_real_samples - num_modes):
+        raise ValueError("Not enough real data to fill the remaining population without replacement.")
+
+    # 1. Select the modes (templates for the spikes)
+    mode_indices = np.random.choice(total_real_samples, size=num_modes, replace=False)
+    templates = real_data[mode_indices]
+    templates_landmarks = real_landmarks[mode_indices]
+    
+    # 2. Duplicate them to create the regional spikes
+    collapsed_data = np.repeat(templates, spike_size, axis=0)
+    collapsed_landmarks = np.repeat(templates_landmarks, spike_size, axis=0)
+    
+    # Add microscopic noise to the collapsed samples so they aren't perfectly identical
     micro_noise = np.random.normal(0, np.std(real_data) * 0.005, size=collapsed_data.shape)
+    collapsed_data += micro_noise
     
-    synthetic_ds = collapsed_data + micro_noise
-    synthetic_landmarks = collapsed_landmarks
+    # 3. Fill the rest of the population with a random subset of the remaining real data
+    available_indices = np.setdiff1d(np.arange(total_real_samples), mode_indices)
+    rest_indices = np.random.choice(available_indices, size=remaining_samples, replace=False)
+    
+    rest_data = real_data[rest_indices]
+    rest_landmarks = real_landmarks[rest_indices]
+    
+    # 4. Combine the collapsed data and the remaining diverse data
+    synthetic_ds = np.vstack((collapsed_data, rest_data))
+    synthetic_landmarks = np.vstack((collapsed_landmarks, rest_landmarks))
+    
+    # 5. Shuffle the dataset to randomly distribute the spikes throughout the arrays
+    shuffle_idx = np.random.permutation(target_size)
+    synthetic_ds = synthetic_ds[shuffle_idx]
+    synthetic_landmarks = synthetic_landmarks[shuffle_idx]
+    
     return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points), synthetic_landmarks
 
 def create_exact_memorization_dataset(real_data_fd, real_landmarks, num_memorized=10, total_synthetic=500):
@@ -54,7 +82,7 @@ def create_exact_memorization_dataset(real_data_fd, real_landmarks, num_memorize
     # This simulates a generalized model that hasn't memorized anything else
     safe_samples_needed = total_synthetic - num_memorized
     random_indices = np.random.choice(real_data.shape[0], size=safe_samples_needed)
-    safe_baseline = real_data[random_indices] + np.random.normal(0, np.std(real_data)*0.5, (safe_samples_needed, real_data.shape[1]))
+    safe_baseline = real_data[random_indices] + np.random.normal(0, np.std(real_data)*0.005, (safe_samples_needed, real_data.shape[1]))
     safe_baseline_landmarks = real_landmarks[random_indices]
     # 3. Inject the exact memorized outliers
     # We do NOT add noise to these. They are exact 1-to-1 copies.

@@ -47,11 +47,6 @@ if __name__ == "__main__":
     holdout_fd = trimmed_real_fd[holdout_idx]
     holdout_landmarks = real_landmarks_all[holdout_idx]
 
-    # Create Validation Datasets
-    low_fidelity_dataset = create_low_fidelity_dataset(trimmed_real_fd)
-    mode_collapse_dataset, mode_collapse_landmarks = create_mode_collapse_dataset(trimmed_real_fd, real_landmarks_all)
-    exact_memorization_dataset, exact_memorization_landmarks = create_exact_memorization_dataset(trimmed_real_fd, real_landmarks_all)
-
     ### FPCA on Holdout Data ###
     # Apply FPCA on holdout dataset
     lambda_ = basis_smoothing_hyperparameter_tuning(holdout_fd, n_basis, domain_range)
@@ -70,261 +65,278 @@ if __name__ == "__main__":
     real_scores = holdout_fpca_.transform(real_aligned_fd)
     real_embedding = holdout_kpca_.transform(real_scores)
 
-    # Apply Holdout FPCA and kPCA on Validation Datasets
-    low_fidelity_fd_smooth, _, _, _ = basis_smoothing_with_lambda(low_fidelity_dataset, lambda_, n_basis, domain_range)
-    low_fidelity_aligned_fd, _ = landmark_registration(low_fidelity_fd_smooth, real_landmarks_all, landmark_locations)
-    low_fidelity_scores = holdout_fpca_.transform(low_fidelity_aligned_fd)
-    low_fidelity_embedding = holdout_kpca_.transform(low_fidelity_scores)
-    
-    mode_collapse_fd_smooth, _, _, _ = basis_smoothing_with_lambda(mode_collapse_dataset, lambda_, n_basis, domain_range)
-    mode_collapse_aligned_fd, _ = landmark_registration(mode_collapse_fd_smooth, mode_collapse_landmarks, landmark_locations)
-    mode_collapse_scores = holdout_fpca_.transform(mode_collapse_aligned_fd)
-    mode_collapse_embedding = holdout_kpca_.transform(mode_collapse_scores)
-    
-    exact_memorization_fd_smooth, _, _, _ = basis_smoothing_with_lambda(exact_memorization_dataset, lambda_, n_basis, domain_range)
-    exact_memorization_aligned_fd, _ = landmark_registration(exact_memorization_fd_smooth, exact_memorization_landmarks, landmark_locations)
-    exact_memorization_scores = holdout_fpca_.transform(exact_memorization_aligned_fd)
-    exact_memorization_embedding = holdout_kpca_.transform(exact_memorization_scores)
+    ## Poor Fidelity Validation
+    mult_grid = [1.0, 1.5, 2.0, 2.5, 3.0]
+    rocs = []
+    for mult in mult_grid:
+        path=Path(save_path + f"low_fidelity_{mult}/")
+        path.mkdir(parents=True, exist_ok=True)
 
-    #### DOMIAS Density Ratio Privacy Evaluation ####
-    ## DOMIAS - Low Utility Dataset
-    # Compute FPC Score and kPCA Embedding Density Ratio #
-    low_fidelity_fpc_density_ratio = domias(holdout_fpca_scores, real_scores, low_fidelity_scores)
-    low_fidelity_kPCA_density_ratio = domias(holdout_embedding, real_embedding, low_fidelity_embedding)
+        low_fidelity_dataset = create_low_fidelity_dataset(trimmed_real_fd, mult)
+        low_fidelity_fd_smooth, _, _, _ = basis_smoothing_with_lambda(low_fidelity_dataset, lambda_, n_basis, domain_range)
+        low_fidelity_aligned_fd, _ = landmark_registration(low_fidelity_fd_smooth, real_landmarks_all, landmark_locations)
+        low_fidelity_scores = holdout_fpca_.transform(low_fidelity_aligned_fd)
+        low_fidelity_embedding = holdout_kpca_.transform(low_fidelity_scores)
 
-    bandwidth_grid = list(low_fidelity_fpc_density_ratio.keys())
+        low_fidelity_fpc_density_ratio = domias(holdout_fpca_scores, real_scores, low_fidelity_scores)
+        low_fidelity_kPCA_density_ratio = domias(holdout_embedding, real_embedding, low_fidelity_embedding)
 
-    # FPC Score Results
-    avg_fpc_privacy = []
-    for bandwidth, score in low_fidelity_fpc_density_ratio.items():
-        avg= np.mean(score > 0)
-        avg_fpc_privacy.append(avg)
+        bandwidth_grid = list(low_fidelity_fpc_density_ratio.keys())
 
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'low_fidelity_fpc_density_ratio_{bandwidth:.3f}.png')
+        # FPC Score Results
+        avg_fpc_privacy = []
+        for bandwidth, score in low_fidelity_fpc_density_ratio.items():
+            avg= np.mean(score > 0)
+            avg_fpc_privacy.append(avg)
+
+            plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+            plt.xlabel('Log Density Ratio')
+            plt.ylabel('Frequency (Count)')
+            plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f}): {mult} Multiplier')
+            plt.savefig(path / f'low_fidelity_fpc_density_ratio_{bandwidth:.3f}.png')
+            plt.close()
+
+        plt.plot(bandwidth_grid, avg_fpc_privacy)
+        plt.xlabel('Bandwidth')
+        plt.ylabel('Log Density Ratio')
+        plt.title(f'Log Low Fidelity FPC Density Ratio vs. Kernel Bandwidth: {mult} Multiplier')
+        plt.savefig(path / 'low_fidelity_fpc_density_ratio_vs_bandwidth.png')
+        plt.close()
+        
+        # kPCA Embedding Density Ratio Results
+        bandwidth_grid = list(low_fidelity_kPCA_density_ratio.keys())
+        avg_kPCA_privacy = []
+        for bandwidth, score in low_fidelity_kPCA_density_ratio.items():
+            avg = np.mean(score > 0)
+            avg_kPCA_privacy.append(avg)
+        
+            plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+            plt.xlabel('Log Density Ratio')
+            plt.ylabel('Frequency (Count)')
+            plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f}): {mult} Multiplier')
+            plt.savefig(path / f'low_fidelity_kPCA_density_ratio_{bandwidth:.3f}.png')
+            plt.close()
+        
+        plt.plot(bandwidth_grid, avg_kPCA_privacy)
+        plt.xlabel('Bandwidth')
+        plt.ylabel('Log Density Ratio')
+        plt.title(f'Log Low Fidelity kPCA Density Ratio vs. Kernel Bandwidth: {mult} Multiplier')
+        plt.savefig(path / 'low_fidelity_kPCA_density_ratio_vs_bandwidth.png')
         plt.close()
 
-    plt.plot(bandwidth_grid, avg_fpc_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log Low Fidelity FPC Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'low_fidelity_fpc_density_ratio_vs_bandwidth.png')
-    plt.close()
-    
-    # kPCA Embedding Density Ratio Results
-    bandwidth_grid = list(low_fidelity_kPCA_density_ratio.keys())
-    avg_kPCA_privacy = []
-    for bandwidth, score in low_fidelity_kPCA_density_ratio.items():
-        avg = np.mean(score > 0)
-        avg_kPCA_privacy.append(avg)
-    
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'low_fidelity_kPCA_density_ratio_{bandwidth:.3f}.png')
+        ### Full Knowledge MIA Privacy Evaluation ###
+        real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)
+        low_fidelity_knowledge = np.concatenate([low_fidelity_scores, low_fidelity_embedding], axis=1)
+        fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_knowledge, low_fidelity_knowledge)
+        rocs.append(mia_auc_roc)
+
+        plt.figure(figsize=(7, 6))
+        plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+        plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+        plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+        plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+        plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+
+        # Formatting the axes with corrected inverted definitions
+        plt.xlim([-0.02, 1.02])
+        plt.ylim([-0.02, 1.02])
+        plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+        plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+        plt.title(f'Low Fidelity Privacy-Fidelity ROC Curve: {mult} Multiplier', fontsize=13, weight='bold', pad=15)
+        plt.legend(loc="lower right", frameon=True, shadow=True)
+        plt.grid(True, linestyle=':', alpha=0.6)
+
+        plt.tight_layout()
+        plt.savefig(path / 'low_fidelity_full_knowledge_mia_roc_curve.png', dpi=300)
         plt.close()
     
-    plt.plot(bandwidth_grid, avg_kPCA_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log Low Fidelity kPCA Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'low_fidelity_kPCA_density_ratio_vs_bandwidth.png')
+    plt.plot(mult_grid, rocs)
+    plt.xlabel('Multiplier')
+    plt.ylabel('AUC-ROC')
+    plt.title('Low Fidelity Privacy-Fidelity ROC Curve')
+    plt.savefig(save_path + 'low_fidelity_full_knowledge_mia_roc_curve_vs_multiplier.png')
     plt.close()
-
-    ### Full Knowledge MIA Privacy Evaluation ###
-    real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)
-    low_fidelity_knowledge = np.concatenate([low_fidelity_scores, low_fidelity_embedding], axis=1)
-    fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_knowledge, low_fidelity_knowledge)
-    print(f"The Full Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
     
-    plt.figure(figsize=(7, 6))
+    ## Mode Collapse Validation
+    num_mode_grid = [1, 2, 3, 4, 5]
+    rocs = []
+    for num_modes in num_mode_grid:
+        path=Path(save_path + f"mode_collapse_{num_modes}/")
+        path.mkdir(parents=True, exist_ok=True)
 
-    # Plot your custom model's curve
-    plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+        mode_collapse_dataset, mode_collapse_landmarks = create_mode_collapse_dataset(trimmed_real_fd, real_landmarks_all, num_modes=num_modes)
 
-    # Plot the 0.50 Equilibrium baseline
-    plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+        mode_collapse_fd_smooth, _, _, _ = basis_smoothing_with_lambda(mode_collapse_dataset, lambda_, n_basis, domain_range)
+        mode_collapse_aligned_fd, _ = landmark_registration(mode_collapse_fd_smooth, mode_collapse_landmarks, landmark_locations)
+        mode_collapse_scores = holdout_fpca_.transform(mode_collapse_aligned_fd)
+        mode_collapse_embedding = holdout_kpca_.transform(mode_collapse_scores)
+        
+        mode_collapse_fpc_density_ratio = domias(holdout_fpca_scores, real_scores, mode_collapse_scores)
+        mode_collapse_kPCA_density_ratio = domias(holdout_embedding, real_embedding, mode_collapse_embedding)
 
-    # Visual Annotation Zones - Relocated to prevent high-AUC line overlap
-    plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
-    plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
-    plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+        bandwidth_grid = list(mode_collapse_fpc_density_ratio.keys())
 
-    # Formatting the axes with corrected inverted definitions
-    plt.xlim([-0.02, 1.02])
-    plt.ylim([-0.02, 1.02])
-    plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
-    plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
-    plt.title('Low Fidelity Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
-    plt.legend(loc="lower right", frameon=True, shadow=True)
-    plt.grid(True, linestyle=':', alpha=0.6)
+        # FPC Score Results
+        avg_fpc_privacy = []
+        for bandwidth, score in mode_collapse_fpc_density_ratio.items():
+            avg= np.mean(score > 0)
+            avg_fpc_privacy.append(avg)
 
-    plt.tight_layout()
-    plt.savefig(save_path + 'low_fidelity_full_knowledge_mia_roc_curve.png', dpi=300)
-    plt.close()
+            plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+            plt.xlabel('Log Density Ratio')
+            plt.ylabel('Frequency (Count)')
+            plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f}): {num_modes} Modes')
+            plt.savefig(path / f'mode_collapse_fpc_density_ratio_{bandwidth:.3f}.png')
+            plt.close()
 
-    ## DOMIAS - Mode Collapse Dataset
-    # Compute FPC Score and kPCA Embedding Density Ratio #
-    mode_collapse_fpc_density_ratio = domias(holdout_fpca_scores, real_scores, mode_collapse_scores)
-    mode_collapse_kPCA_density_ratio = domias(holdout_embedding, real_embedding, mode_collapse_embedding)
-
-    ### Result Display ###
-    bandwidth_grid = list(mode_collapse_fpc_density_ratio.keys())
-
-    # FPC Score Results
-    avg_fpc_privacy = []
-    for bandwidth, score in mode_collapse_fpc_density_ratio.items():
-        avg= np.mean(score > 0)
-        avg_fpc_privacy.append(avg)
-
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'mode_collapse_fpc_density_ratio_{bandwidth:.3f}.png')
+        plt.plot(bandwidth_grid, avg_fpc_privacy)
+        plt.xlabel('Bandwidth')
+        plt.ylabel('Log Density Ratio')
+        plt.title(f'Log Mode Collapse FPC Density Ratio vs. Kernel Bandwidth: {num_modes} Modes')
+        plt.savefig(path / 'mode_collapse_fpc_density_ratio_vs_bandwidth.png')
+        plt.close()
+        
+        # kPCA Embedding Density Ratio Results
+        bandwidth_grid = list(mode_collapse_kPCA_density_ratio.keys())
+        avg_kPCA_privacy = []
+        for bandwidth, score in mode_collapse_kPCA_density_ratio.items():
+            avg = np.mean(score > 0)
+            avg_kPCA_privacy.append(avg)
+        
+            plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+            plt.xlabel('Log Density Ratio')
+            plt.ylabel('Frequency (Count)')
+            plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f}): {num_modes} Modes')
+            plt.savefig(path / f'mode_collapse_kPCA_density_ratio_{bandwidth:.3f}.png')
+            plt.close()
+        
+        plt.plot(bandwidth_grid, avg_kPCA_privacy)
+        plt.xlabel('Bandwidth')
+        plt.ylabel('Log Density Ratio')
+        plt.title(f'Log Mode Collapse kPCA Density Ratio vs. Kernel Bandwidth: {num_modes} Modes')
+        plt.savefig(path / 'mode_collapse_kPCA_density_ratio_vs_bandwidth.png')
         plt.close()
 
-    plt.plot(bandwidth_grid, avg_fpc_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log Mode Collapse FPC Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'mode_collapse_fpc_density_ratio_vs_bandwidth.png')
-    plt.close()
-    
-    # kPCA Embedding Density Ratio Results
-    bandwidth_grid = list(mode_collapse_kPCA_density_ratio.keys())
-    avg_kPCA_privacy = []
-    for bandwidth, score in mode_collapse_kPCA_density_ratio.items():
-        avg = np.mean(score > 0)
-        avg_kPCA_privacy.append(avg)
-    
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'mode_collapse_kPCA_density_ratio_{bandwidth:.3f}.png')
+        ### Full Knowledge MIA Privacy Evaluation ###
+        real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)
+        mode_collapse_knowledge = np.concatenate([mode_collapse_scores, mode_collapse_embedding], axis=1)
+        fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_knowledge, mode_collapse_knowledge)
+        rocs.append(mia_auc_roc)
+        
+        plt.figure(figsize=(7, 6))
+
+        plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+        plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+        plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+        plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+        plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+
+        # Formatting the axes with corrected inverted definitions
+        plt.xlim([-0.02, 1.02])
+        plt.ylim([-0.02, 1.02])
+        plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+        plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+        plt.title(f'Mode Collapse Privacy-Fidelity ROC Curve: {num_modes} Modes', fontsize=13, weight='bold', pad=15)
+        plt.legend(loc="lower right", frameon=True, shadow=True)
+        plt.grid(True, linestyle=':', alpha=0.6)
+
+        plt.tight_layout()
+        plt.savefig(path / 'mode_collapse_full_knowledge_mia_roc_curve.png', dpi=300)
         plt.close()
     
-    plt.plot(bandwidth_grid, avg_kPCA_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log Mode Collapse kPCA Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'mode_collapse_kPCA_density_ratio_vs_bandwidth.png')
+    plt.plot(num_mode_grid, rocs)
+    plt.xlabel('Number of Modes')
+    plt.ylabel('AUC-ROC')
+    plt.title('Mode Collapse Privacy-Fidelity ROC Curve')
+    plt.savefig(save_path + 'mode_collapse_full_knowledge_mia_roc_curve_vs_num_modes.png')
     plt.close()
-
-    ### Full Knowledge MIA Privacy Evaluation ###
-    real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)
-    mode_collapse_knowledge = np.concatenate([mode_collapse_scores, mode_collapse_embedding], axis=1)
-    fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_knowledge, mode_collapse_knowledge)
-    print(f"The Full Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
     
-    plt.figure(figsize=(7, 6))
+    ## Exact Memorization Validation
+    num_memorized_grid = [50, 100, 150, 200, 250]
+    rocs = []
+    for num_memorized in num_memorized_grid:
+        path=Path(save_path + f"exact_memorization_{num_memorized}/")
+        path.mkdir(parents=True, exist_ok=True)
 
-    # Plot your custom model's curve
-    plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+        exact_memorization_dataset, exact_memorization_landmarks = create_exact_memorization_dataset(trimmed_real_fd, real_landmarks_all, num_memorized=num_memorized)
+        exact_memorization_fd_smooth, _, _, _ = basis_smoothing_with_lambda(exact_memorization_dataset, lambda_, n_basis, domain_range)
+        exact_memorization_aligned_fd, _ = landmark_registration(exact_memorization_fd_smooth, exact_memorization_landmarks, landmark_locations)
+        exact_memorization_scores = holdout_fpca_.transform(exact_memorization_aligned_fd)
+        exact_memorization_embedding = holdout_kpca_.transform(exact_memorization_scores)
+        exact_memorization_fpc_density_ratio = domias(holdout_fpca_scores, real_scores, exact_memorization_scores)
+        exact_memorization_kPCA_density_ratio = domias(holdout_embedding, real_embedding, exact_memorization_embedding)
 
-    # Plot the 0.50 Equilibrium baseline
-    plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+        bandwidth_grid = list(exact_memorization_fpc_density_ratio.keys())
 
-    # Visual Annotation Zones - Relocated to prevent high-AUC line overlap
-    plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
-    plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
-    plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+        avg_fpc_privacy = []
+        for bandwidth, score in exact_memorization_fpc_density_ratio.items():
+            avg= np.mean(score > 0)
+            avg_fpc_privacy.append(avg)
 
-    # Formatting the axes with corrected inverted definitions
-    plt.xlim([-0.02, 1.02])
-    plt.ylim([-0.02, 1.02])
-    plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
-    plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
-    plt.title('Mode Collapse Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
-    plt.legend(loc="lower right", frameon=True, shadow=True)
-    plt.grid(True, linestyle=':', alpha=0.6)
+            plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+            plt.xlabel('Log Density Ratio')
+            plt.ylabel('Frequency (Count)')
+            plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f}): {num_memorized} Memorized')
+            plt.savefig(path / f'exact_memorization_fpc_density_ratio_{bandwidth:.3f}.png')
+            plt.close()
 
-    plt.tight_layout()
-    plt.savefig(save_path + 'mode_collapse_full_knowledge_mia_roc_curve.png', dpi=300)
-    plt.close()
-
-    ## DOMIAS - Exact Memorization Dataset
-    # Compute FPC Score and kPCA EmbeddingDensity Ratio #
-    exact_memorization_fpc_density_ratio = domias(holdout_fpca_scores, real_scores, exact_memorization_scores)
-    exact_memorization_kPCA_density_ratio = domias(holdout_embedding, real_embedding, exact_memorization_embedding)
-
-    ### Result Display ###
-    bandwidth_grid = list(exact_memorization_fpc_density_ratio.keys())
-
-    # FPC Score Results
-    avg_fpc_privacy = []
-    for bandwidth, score in exact_memorization_fpc_density_ratio.items():
-        avg= np.mean(score > 0)
-        avg_fpc_privacy.append(avg)
-
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'exact_memorization_fpc_density_ratio_{bandwidth:.3f}.png')
+        plt.plot(bandwidth_grid, avg_fpc_privacy)
+        plt.xlabel('Bandwidth')
+        plt.ylabel('Log Density Ratio')
+        plt.title(f'Log Exact Memorization FPC Density Ratio vs. Kernel Bandwidth: {num_memorized} Memorized')
+        plt.savefig(path / 'exact_memorization_fpc_density_ratio_vs_bandwidth.png')
+        plt.close()
+        
+        # kPCA Embedding Density Ratio Results
+        bandwidth_grid = list(exact_memorization_kPCA_density_ratio.keys())
+        avg_kPCA_privacy = []
+        for bandwidth, score in exact_memorization_kPCA_density_ratio.items():
+            avg = np.mean(score > 0)
+            avg_kPCA_privacy.append(avg)
+        
+            plt.hist(score, bins=50, color='skyblue', edgecolor='black')
+            plt.xlabel('Log Density Ratio')
+            plt.ylabel('Frequency (Count)')
+            plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f})')
+            plt.savefig(path / f'exact_memorization_kPCA_density_ratio_{bandwidth:.3f}.png')
+            plt.close()
+        
+        plt.plot(bandwidth_grid, avg_kPCA_privacy)
+        plt.xlabel('Bandwidth')
+        plt.ylabel('Log Density Ratio')
+        plt.title(f'Log Exact Memorization kPCA Density Ratio vs. Kernel Bandwidth: {num_memorized} Memorized')
+        plt.savefig(path / 'exact_memorization_kPCA_density_ratio_vs_bandwidth.png')
         plt.close()
 
-    plt.plot(bandwidth_grid, avg_fpc_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log Exact Memorization FPC Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'exact_memorization_fpc_density_ratio_vs_bandwidth.png')
-    plt.close()
-    
-    # kPCA Embedding Density Ratio Results
-    bandwidth_grid = list(exact_memorization_kPCA_density_ratio.keys())
-    avg_kPCA_privacy = []
-    for bandwidth, score in exact_memorization_kPCA_density_ratio.items():
-        avg = np.mean(score > 0)
-        avg_kPCA_privacy.append(avg)
-    
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'exact_memorization_kPCA_density_ratio_{bandwidth:.3f}.png')
+        ### Full Knowledge MIA Privacy Evaluation ###
+        real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)
+        exact_memorization_knowledge = np.concatenate([exact_memorization_scores, exact_memorization_embedding], axis=1)
+        fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_knowledge, exact_memorization_knowledge)
+        rocs.append(mia_auc_roc)
+        
+        plt.figure(figsize=(7, 6))
+
+        plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+        plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+        plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+        plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+        plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+
+        plt.xlim([-0.02, 1.02])
+        plt.ylim([-0.02, 1.02])
+        plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+        plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+        plt.title(f'Exact Memorization Privacy-Fidelity ROC Curve: {num_memorized} Memorized', fontsize=13, weight='bold', pad=15)
+        plt.legend(loc="lower right", frameon=True, shadow=True)
+        plt.grid(True, linestyle=':', alpha=0.6)
+
+        plt.tight_layout()
+        plt.savefig(path / 'exact_memorization_full_knowledge_mia_roc_curve.png', dpi=300)
         plt.close()
     
-    plt.plot(bandwidth_grid, avg_kPCA_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log Exact Memorization kPCA Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'exact_memorization_kPCA_density_ratio_vs_bandwidth.png')
-    plt.close()
-
-    ### Full Knowledge MIA Privacy Evaluation ###
-    real_knowledge = np.concatenate([real_scores, real_embedding], axis=1)
-    exact_memorization_knowledge = np.concatenate([exact_memorization_scores, exact_memorization_embedding], axis=1)
-    fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_knowledge, exact_memorization_knowledge)
-    print(f"The Full Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
-    
-    plt.figure(figsize=(7, 6))
-
-    # Plot your custom model's curve
-    plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
-
-    # Plot the 0.50 Equilibrium baseline
-    plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
-
-    # Visual Annotation Zones - Relocated to prevent high-AUC line overlap
-    plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
-    plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
-    plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
-
-    # Formatting the axes with corrected inverted definitions
-    plt.xlim([-0.02, 1.02])
-    plt.ylim([-0.02, 1.02])
-    plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
-    plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
-    plt.title('Exact Memorization Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
-    plt.legend(loc="lower right", frameon=True, shadow=True)
-    plt.grid(True, linestyle=':', alpha=0.6)
-
-    plt.tight_layout()
-    plt.savefig(save_path + 'exact_memorization_full_knowledge_mia_roc_curve.png', dpi=300)
+    plt.plot(num_memorized_grid, rocs)
+    plt.xlabel('Number of Memorized')
+    plt.ylabel('AUC-ROC')
+    plt.title('Exact Memorization Privacy-Fidelity ROC Curve')
+    plt.savefig(save_path + 'exact_memorization_full_knowledge_mia_roc_curve_vs_num_memorized.png')
     plt.close()

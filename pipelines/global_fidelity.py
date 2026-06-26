@@ -70,7 +70,7 @@ if __name__ == "__main__":
     ratios, baseline, ratio_ks = local_mixing_ratio(real_scores, synthetic_scores)
 
     gw= gromov_wasserstein(real_embedding, synthetic_embedding)
-    ig = internal_geometry(isomap_real.dist_matrix_, isomap_synthetic.dist_matrix_)
+    # ig = internal_geometry(isomap_real.dist_matrix_, isomap_synthetic.dist_matrix_)
 
     #### ------ Results ------ ####
     #### FPCA Plots
@@ -108,7 +108,7 @@ if __name__ == "__main__":
         ["Frechet Wasserstein", fw], 
         ["Covariance Distance", covariance_dist], 
         ["Gromov Wasserstein", gw],
-        ["Internal Geometry", ig],
+        # ["Internal Geometry", ig],
     ]
     print(tb.tabulate(table, headers=column, tablefmt="grid"))
 
