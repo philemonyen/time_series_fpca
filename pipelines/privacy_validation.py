@@ -1,7 +1,5 @@
 import numpy as np
-import tabulate as tb
 import matplotlib.pyplot as plt
-from sklearn.manifold import Isomap
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
