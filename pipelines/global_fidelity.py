@@ -5,8 +5,8 @@ from sklearn.manifold import Isomap
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.transformation.fpca import fpca_with_param
-from methods.transformation.isomap import find_optimal_k, find_optimal_manifold_dim
+from methods.transformation.fda.fpca import fpca_with_param
+from methods.transformation.nonlinear.isomap import find_optimal_k, find_optimal_manifold_dim
 from methods.evaluation.fidelity import mmd_distance, frechet_wasserstein, covariance_operator_dist, compute_prdc, kolmogorov_smirnov, local_mixing_ratio, gromov_wasserstein, internal_geometry
 
 if __name__ == "__main__":

@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.transformation.fpca import fpca_with_param
-from methods.transformation.kpca import tune_gamma, tuning_n_components, kpca_with_param
+from methods.transformation.fda.fpca import fpca_with_param
+from methods.transformation.nonlinear.kpca import tune_gamma, tuning_n_components, kpca_with_param
 from methods.evaluation.privacy import domias, full_knowledge_mia
-from methods.validation.data_creation import create_low_fidelity_dataset, create_mode_collapse_dataset, create_exact_memorization_dataset
+from methods.validation.controlled_flaw_modelling import create_low_fidelity_dataset, create_mode_collapse_dataset, create_exact_memorization_dataset
 
 if __name__ == "__main__":
     diagnostic = "NORM"

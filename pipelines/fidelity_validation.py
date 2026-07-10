@@ -5,10 +5,10 @@ from sklearn.manifold import Isomap
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.transformation.fpca import fpca_with_param
-from methods.transformation.isomap import find_optimal_k, find_optimal_manifold_dim
+from methods.transformation.fda.fpca import fpca_with_param
+from methods.transformation.nonlinear.isomap import find_optimal_k, find_optimal_manifold_dim
 from methods.evaluation.fidelity import mmd_distance, frechet_wasserstein, covariance_operator_dist, compute_prdc, kolmogorov_smirnov, local_mixing_ratio, gromov_wasserstein, internal_geometry
-from methods.validation.data_creation import create_low_fidelity_dataset, create_mode_collapse_dataset, create_exact_memorization_dataset
+from methods.validation.controlled_flaw_modelling import gaussian_noise, full_memorization, segment_leaking, mode_collapse
 
 if __name__ == "__main__":
     diagnostic = "NORM"
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         path=Path(save_path + f"low_fidelity_{mult}/")
         path.mkdir(parents=True, exist_ok=True)
 
-        low_fidelity_dataset = create_low_fidelity_dataset(trimmed_real_fd, mult)
+        low_fidelity_dataset = gaussian_noise(trimmed_real_fd, mult)
         low_fidelity_fd_smooth, _, _, _ = basis_smoothing_with_lambda(low_fidelity_dataset, lambda_, n_basis, domain_range)
         low_fidelity_aligned_fd, _ = landmark_registration(low_fidelity_fd_smooth, real_landmarks_all, landmark_locations)
         low_fidelity_scores = real_fpca_.transform(low_fidelity_aligned_fd)
@@ -145,7 +145,7 @@ if __name__ == "__main__":
         path=Path(save_path + f"mode_collapse_{num_modes}/")
         path.mkdir(parents=True, exist_ok=True)
 
-        mode_collapse_dataset, mode_collapse_landmarks = create_mode_collapse_dataset(trimmed_real_fd, real_landmarks_all, num_modes=num_modes)
+        mode_collapse_dataset, mode_collapse_landmarks = mode_collapse(trimmed_real_fd, real_landmarks_all, num_modes=num_modes)
         mode_collapse_fd_smooth, _, _, _ = basis_smoothing_with_lambda(mode_collapse_dataset, lambda_, n_basis, domain_range)
         mode_collapse_aligned_fd, _ = landmark_registration(mode_collapse_fd_smooth, mode_collapse_landmarks, landmark_locations)
         mode_collapse_scores = real_fpca_.transform(mode_collapse_aligned_fd)
@@ -221,7 +221,7 @@ if __name__ == "__main__":
         path=Path(save_path + f"exact_memorization_{num_memorized}/")
         path.mkdir(parents=True, exist_ok=True)
 
-        exact_memorization_dataset, exact_memorization_landmarks = create_exact_memorization_dataset(trimmed_real_fd, real_landmarks_all, num_memorized=num_memorized)
+        exact_memorization_dataset, exact_memorization_landmarks = full_memorization(trimmed_real_fd, real_landmarks_all)
         exact_memorization_fd_smooth, _, _, _ = basis_smoothing_with_lambda(exact_memorization_dataset, lambda_, n_basis, domain_range)
         exact_memorization_aligned_fd, _ = landmark_registration(exact_memorization_fd_smooth, exact_memorization_landmarks, landmark_locations)
         exact_memorization_scores = real_fpca_.transform(exact_memorization_aligned_fd)
