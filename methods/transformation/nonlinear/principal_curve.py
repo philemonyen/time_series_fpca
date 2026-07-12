@@ -1,7 +1,7 @@
 import numpy as np
 from skfda.representation.grid import FDataGrid
 
-def compute_principal_curve(score_matrix, first_pc: FDataGrid, mean_curve: FDataGrid = None) -> FDataGrid:
+def principal_curve(score_matrix, first_pc: FDataGrid, mean_curve: FDataGrid = None) -> FDataGrid:
     """
     Constructs the principal curve representation using the first principal component.
 

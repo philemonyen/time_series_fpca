@@ -46,4 +46,4 @@ def compute_fica(fpca_scores, fpca_components: FDataGrid, random_state=42):
         dataset_name="Functional Independent Components"
     )
     
-    return fica_scores, fics
+    return fica_scores, fics, ica

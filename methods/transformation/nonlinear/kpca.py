@@ -37,7 +37,7 @@ def tune_gamma(X):
             print(f"Gamma: {gamma:<6} | Failed to converge ({e})")
     return best_gamma
 
-def tuning_n_components(X, threshold=0.95):
+def kpca_tune_n_components(X, threshold=0.95):
     optimal_gamma = tune_gamma(X)
 
     kpca = KernelPCA(n_components=None, kernel='rbf', gamma=optimal_gamma)

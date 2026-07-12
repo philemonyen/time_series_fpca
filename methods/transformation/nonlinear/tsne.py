@@ -54,9 +54,17 @@ def optimize_tsne_perplexity(score_matrix, n_components=2, k_neighbors=5):
             best_perplexity = perp
             best_embeddings = embeddings
     
-    return best_perplexity, best_embeddings, results
+    return best_perplexity
 
-# --- Usage Example ---
-# Assuming `scores` is your (n_samples, n_features) matrix
-# perplexities_to_test = [5, 15, 30, 50, 100]
-# best_perp, best_embed, stats = optimize_tsne_perplexity(scores, perplexities_to_test)
+def tsne_trasformation(score_matrix, n_components=2):
+    """
+    Applies t-SNE transformation to the score matrix.
+    """
+    perplexity = optimize_tsne_perplexity(score_matrix, n_components=n_components)
+    tsne = TSNE(
+        n_components=n_components, 
+        perplexity=perplexity, 
+        init="pca", 
+        learning_rate="auto", 
+        random_state=42)
+    return tsne.fit_transform(score_matrix)

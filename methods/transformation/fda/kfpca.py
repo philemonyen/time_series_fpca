@@ -37,7 +37,7 @@ def functional_rbf_kernel(fd_X, gamma):
     
     return K
 
-def tune_gamma(X):
+def kfpca_tune_gamma(X):
     """
     Tune gamma by Pre-Image Reconstruction Error Grid Search
     """
@@ -72,7 +72,7 @@ def tune_gamma(X):
             print(f"Gamma: {gamma:<6} | Failed to converge ({e})")
     return best_gamma
 
-def tuning_n_components(X, threshold=0.95):
+def kfpca_tuning_n_components(X, threshold=0.95):
     optimal_gamma = tune_gamma(X)
     K = functional_rbf_kernel(X, optimal_gamma)
 
