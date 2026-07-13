@@ -1,10 +1,10 @@
-from validation.controlled_flaw_modelling import *
+from methods.validation.controlled_flaw_modelling import *
 
-def oversmoothing_creation(fd):
+def oversmoothing_creation(fd, landmarks):
     dataset = {}
     window_size = [5, 10, 20, 30, 50, 100]
     for window in window_size:
-        dataset[window] = oversmoothing(fd, window)
+        dataset[window] = oversmoothing(fd, landmarks, window)
     return dataset
 
 def memorization_creation(fd_real, fd_substitute, landmarks_real, landmarks_substitute):
@@ -14,11 +14,11 @@ def memorization_creation(fd_real, fd_substitute, landmarks_real, landmarks_subs
         dataset[fraction] = full_memorization(fd_real, fd_substitute, landmarks_real, landmarks_substitute, fraction)
     return dataset
 
-def gaussian_noise_creation(fd):
+def gaussian_noise_creation(fd, landmarks):
     dataset = {}
     noise_multiplier = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
     for noise_multiplier in noise_multiplier:
-        dataset[noise_multiplier] = gaussian_noise(fd, noise_multiplier)
+        dataset[noise_multiplier] = gaussian_noise(fd, landmarks, noise_multiplier)
     return dataset
 
 def mode_collapse_vary_modes_creation(fd, landmarks):

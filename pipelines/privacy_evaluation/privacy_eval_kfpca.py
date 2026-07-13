@@ -106,15 +106,12 @@ if __name__ == "__main__":
     # Apply kPCA on holdout kFPCA scores
     holdout_kpca_n_components = kpca_tune_n_components(holdout_kfpca_embedding)
     holdout_kpca_gamma = tune_gamma(holdout_kfpca_embedding)
-    holdout_kpca = kpca_with_param(holdout_kfpca_embedding, holdout_kpca_n_components, holdout_kpca_gamma)
-    holdout_kpca_embedding = holdout_kpca.transform(holdout_kfpca_embedding)
+    holdout_kpca_embedding, holdout_kpca = kpca_with_param(holdout_kfpca_embedding, holdout_kpca_n_components, holdout_kpca_gamma)
 
     # Apply holdout kPCA on real kFPCA scores
     real_kpca_embedding = holdout_kpca.transform(real_kfpca_embedding)
-
     # Apply holdout kPCA on synthetic kFPCA scores
     synthetic_kpca_embedding = holdout_kpca.transform(synthetic_kfpca_embedding)
-
     ## Evaluation: DOMIAS on kPCA embeddings
     kpca_density_ratio = domias(holdout_kpca_embedding, real_kpca_embedding, synthetic_kpca_embedding)
 

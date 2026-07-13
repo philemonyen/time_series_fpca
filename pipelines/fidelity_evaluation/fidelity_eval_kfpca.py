@@ -129,8 +129,7 @@ if __name__ == "__main__":
     # Apply kPCA on real and transform synthetic 
     real_kpca_n_components = kpca_tune_n_components(real_kfpca_embedding)
     real_kpca_gamma = tune_gamma(real_kfpca_embedding)
-    real_kpca = kpca_with_param(real_kfpca_embedding, real_kpca_n_components, real_kpca_gamma)
-    real_kpca_embedding = real_kpca.transform(real_kfpca_embedding)
+    real_kpca_embedding, real_kpca = kpca_with_param(real_kfpca_embedding, real_kpca_n_components, real_kpca_gamma)
     synthetic_kpca_embedding = real_kpca.transform(synthetic_kfpca_embedding)
 
     ## Evaluation: MMD, Mahalanobis, FPC KS, PRDC, LMR
@@ -171,7 +170,7 @@ if __name__ == "__main__":
     # Isomap: Gromov Wasserstein & Procrustes Analysis
     print("Isomap: Gromov Wasserstein & Procrustes Analysis")
     print(f"    Gromov Wasserstein: {isomap_gw}")
-    print(f"    Procrustes Similarity: {isomap_procrustes["unpaired_similarity_score"]}")
+    print(f"    Procrustes Similarity: {isomap_procrustes['unpaired_similarity_score']}")
 
     # t-SNE: Gromov Wasserstein
     print("t-SNE: Gromov Wasserstein")
@@ -180,7 +179,7 @@ if __name__ == "__main__":
     # Individual Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
     print("Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve")
     print(f"    Gromov Wasserstein: {dmap_gw}")
-    print(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse["entropy_rmse"]}")
+    print(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse['entropy_rmse']}")
 
     # Shared Diffusion Map: JS Divergence, MMD, PRDC, LMR
     print("Diffusion Map: JS Divergence, MMD, PRDC, LMR")

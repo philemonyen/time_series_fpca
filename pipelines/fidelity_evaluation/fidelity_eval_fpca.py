@@ -1,3 +1,4 @@
+import readline
 import numpy as np
 import tabulate as tb
 import matplotlib.pyplot as plt
@@ -8,7 +9,7 @@ from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoo
 from methods.transformation.fda.fpca import fpca_with_param
 from methods.transformation.nonlinear.isomap import find_optimal_k, find_optimal_manifold_dim
 from methods.transformation.nonlinear.tsne import tsne_trasformation
-from methods.transformation.nonlinear.diffusion_map import dmap_tune_n_components, dmap_fit
+from methods.transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from methods.transformation.nonlinear.umap import tune_umap
 from methods.transformation.nonlinear.kpca import kpca_tune_n_components, kpca_with_param, tune_gamma
 from methods.transformation.nonlinear.principal_curve import principal_curve
@@ -83,7 +84,7 @@ if __name__ == "__main__":
 
     ## Evaluation: Gromov Wasserstein & Procrustes Analysis
     isomap_gw = gromov_wasserstein(real_isomap_embedding, synthetic_isomap_embedding)
-    isomap_procrustes = procrustes(real_isomap_embedding, synthetic_isomap_embedding)
+    isomap_procrustes = unpaired_procrustes(real_isomap_embedding, synthetic_isomap_embedding)
 
     # Apply t-SNE on real and synthetic FPC scores separately
     real_tsne_embedding = tsne_trasformation(real_scores)
@@ -93,17 +94,16 @@ if __name__ == "__main__":
     tsne_gw = gromov_wasserstein(real_tsne_embedding, synthetic_tsne_embedding)
 
     # Apply Diffusion Map on real and synthetic FPC scores separately
-    real_dmap_n_components = dmap_tune_n_components(real_scores)
-    real_dmap = dmap_fit(real_scores, real_dmap_n_components)
+    real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
+    real_dmap_evals = real_dmap.evals_
     real_dmap_embedding = real_dmap.transform(real_scores)
-
-    synthetic_dmap_n_components = dmap_tune_n_components(synthetic_scores_shared_fpca)
-    synthetic_dmap = dmap_fit(synthetic_scores_shared_fpca, synthetic_dmap_n_components)
+    synthetic_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(synthetic_scores_shared_fpca)
+    synthetic_dmap_evals = synthetic_dmap.evals_
     synthetic_dmap_embedding = synthetic_dmap.transform(synthetic_scores_shared_fpca)
 
     ## Evaluation: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
     dmap_gw = gromov_wasserstein(real_dmap_embedding, synthetic_dmap_embedding)
-    dmap_entropy_rmse = diffusion_map_entropy_rmse(real_dmap, synthetic_dmap)
+    dmap_entropy_rmse = diffusion_map_entropy_rmse(real_dmap_evals, synthetic_dmap_evals)
 
     # Apply Diffusion Map on real and transform synthetic 
     synthetic_dmap_embedding_shared_real = real_dmap.transform(synthetic_scores_shared_fpca)
@@ -135,8 +135,7 @@ if __name__ == "__main__":
     # Apply kPCA on real and transform synthetic 
     real_kpca_n_components = kpca_tune_n_components(real_scores)
     real_kpca_gamma = tune_gamma(real_scores)
-    real_kpca = kpca_with_param(real_scores, real_kpca_n_components, real_kpca_gamma)
-    real_kpca_embedding = real_kpca.transform(real_scores)
+    real_kpca_embedding, real_kpca = kpca_with_param(real_scores, real_kpca_n_components, real_kpca_gamma)
     synthetic_kpca_embedding = real_kpca.transform(synthetic_scores_shared_fpca)
 
     ## Evaluation: MMD, Mahalanobis, FPC KS, PRDC, LMR
@@ -151,7 +150,7 @@ if __name__ == "__main__":
     synthetic_principal_curve = principal_curve(synthetic_scores_shared_fpca, synthetic_components[0], synthetic_mean)
 
     ## Evaluation: Wasserstein Distance
-    principal_curve_wd = wasserstein(real_principal_curve.data_matrix, synthetic_principal_curve.data_matrix)
+    principal_curve_wd = wasserstein(real_principal_curve.data_matrix.squeeze(), synthetic_principal_curve.data_matrix.squeeze())
 
     #### ------------ Result Display ------------ ####
     ## Individual FPCA
@@ -191,7 +190,7 @@ if __name__ == "__main__":
     # Isomap: Gromov Wasserstein & Procrustes Analysis
     print("Isomap: Gromov Wasserstein & Procrustes Analysis")
     print(f"    Gromov Wasserstein: {isomap_gw}")
-    print(f"    Procrustes Similarity: {isomap_procrustes["unpaired_similarity_score"]}")
+    print(f"    Procrustes Similarity: {isomap_procrustes['unpaired_similarity_score']}")
 
     # t-SNE: Gromov Wasserstein
     print("t-SNE: Gromov Wasserstein")
@@ -200,7 +199,7 @@ if __name__ == "__main__":
     # Individual Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
     print("Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve")
     print(f"    Gromov Wasserstein: {dmap_gw}")
-    print(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse["entropy_rmse"]}")
+    print(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse['entropy_rmse']}")
 
     # Shared Diffusion Map: JS Divergence, MMD, PRDC, LMR
     print("Diffusion Map: JS Divergence, MMD, PRDC, LMR")

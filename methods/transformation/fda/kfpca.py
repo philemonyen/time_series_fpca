@@ -27,7 +27,7 @@ def functional_rbf_kernel(fd_X, gamma):
     dist_func = pairwise_distance(l2_distance)
     
     # 2. Compute the integral L2 distances
-    distance_matrix = dist_func(fd_X, fd_X)
+    distance_matrix = dist_func(fd_X.data_matrix, fd_X.data_matrix)
         
     # 3. Square the distances
     sq_distance_matrix = distance_matrix ** 2
@@ -41,7 +41,7 @@ def kfpca_tune_gamma(X):
     """
     Tune gamma by Pre-Image Reconstruction Error Grid Search
     """
-    pairwise_sq_dists = pairwise_distance(l2_distance)(X, X)
+    pairwise_sq_dists = pairwise_distance(l2_distance)(X.data_matrix, X.data_matrix)
     median_sq_dist = np.median(pairwise_sq_dists)
     gamma_init = 1.0 / (2.0 * median_sq_dist)
     gamma_grid = [gamma_init * 2**i for i in range(-3, 4)] # 8 values in total
@@ -73,7 +73,7 @@ def kfpca_tune_gamma(X):
     return best_gamma
 
 def kfpca_tuning_n_components(X, threshold=0.95):
-    optimal_gamma = tune_gamma(X)
+    optimal_gamma = kfpca_tune_gamma(X)
     K = functional_rbf_kernel(X, optimal_gamma)
 
     kpca = KernelPCA(n_components=None, kernel='precomputed')

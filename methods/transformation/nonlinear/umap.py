@@ -29,10 +29,7 @@ def tune_umap(X):
     best_reducer = None
     
     # Iterate through every combination of parameters
-    for n_neighbors, min_dist in itertools.product(n_neighbors_grid, min_dist_grid):
-        
-        print(f"Testing n_neighbors={n_neighbors}, min_dist={min_dist}...")
-        
+    for n_neighbors, min_dist in itertools.product(n_neighbors_grid, min_dist_grid):        
         # 1. Fit the UMAP model
         reducer = umap.UMAP(
             n_neighbors=n_neighbors,
@@ -57,10 +54,5 @@ def tune_umap(X):
         if score > best_score:
             best_score = score
             best_params = {'n_neighbors': n_neighbors, 'min_dist': min_dist}
-            best_reducer = reducer
-            
-    print("\n--- Grid Search Complete ---")
-    print(f"Optimal Parameters: {best_params}")
-    print(f"Max Trustworthiness: {best_score:.4f} (Closer to 1.0 is better)")
-    
+            best_reducer = reducer    
     return best_reducer

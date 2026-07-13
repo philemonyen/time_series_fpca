@@ -56,11 +56,11 @@ if __name__ == "__main__":
     datasets = {}
     for scenario in scenarios:
         if scenario == "oversmoothing":
-            datasets = oversmoothing_creation(real_fd)
+            datasets = oversmoothing_creation(real_fd, real_landmarks)
         elif scenario == "memorization":
             datasets = memorization_creation(real_fd, substitute_fd, real_landmarks, substitute_landmarks)
         elif scenario == "gaussian_noise":
-            datasets = gaussian_noise_creation(real_fd)
+            datasets = gaussian_noise_creation(real_fd, real_landmarks)
         elif scenario == "mode_collapse_vary_modes":
             datasets = mode_collapse_vary_modes_creation(real_fd, real_landmarks)
         elif scenario == "mode_collapse_vary_spike_ratio":
@@ -69,7 +69,7 @@ if __name__ == "__main__":
             datasets = segment_leaking_creation(real_fd, substitute_fd, real_landmarks, substitute_landmarks)
 
         for key, value in datasets.items():
-            flaw_fd = value
+            flaw_fd, flaw_landmarks = value
             #### ------------ Shared FPCA ------------ ####
             # Apply FPCA & FICA on Holdout dataset
             lambda_ = basis_smoothing_hyperparameter_tuning(holdout_fd, n_basis, domain_range)
@@ -88,7 +88,7 @@ if __name__ == "__main__":
             # Apply Holdout FPCA & FICA on flaw dataset
             lambda_ = basis_smoothing_hyperparameter_tuning(flaw_fd, n_basis, domain_range)
             flaw_fd_smooth, _, _, _ = basis_smoothing_with_lambda(flaw_fd, lambda_, n_basis, domain_range)
-            flaw_aligned_fd, _ = landmark_registration(flaw_fd_smooth, real_landmarks_all, landmark_locations)
+            flaw_aligned_fd, _ = landmark_registration(flaw_fd_smooth, flaw_landmarks, landmark_locations)
             flaw_fpca_scores = holdout_fpca_.transform(flaw_aligned_fd)
             flaw_fica_scores = holdout_ica.transform(flaw_fpca_scores)
 

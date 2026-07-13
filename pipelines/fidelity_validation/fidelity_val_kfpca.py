@@ -45,13 +45,15 @@ if __name__ == "__main__":
     # Create Controlled Flaw Dataset
     scenarios = ["oversmoothing", "memorization", "gaussian_noise", "mode_collapse_vary_modes", "mode_collapse_vary_spike_ratio", "segment_leaking"]
     datasets = {}
+    # Result Tracking
+    result_tracking = {}
     for scenario in scenarios:
         if scenario == "oversmoothing":
-            datasets = oversmoothing_creation(real_fd)
+            datasets = oversmoothing_creation(real_fd, real_landmarks)
         elif scenario == "memorization":
             datasets = memorization_creation(real_fd, substitute_fd, real_landmarks, substitute_landmarks)
         elif scenario == "gaussian_noise":
-            datasets = gaussian_noise_creation(real_fd)
+            datasets = gaussian_noise_creation(real_fd, real_landmarks)
         elif scenario == "mode_collapse_vary_modes":
             datasets = mode_collapse_vary_modes_creation(real_fd, real_landmarks)
         elif scenario == "mode_collapse_vary_spike_ratio":
@@ -59,8 +61,10 @@ if __name__ == "__main__":
         elif scenario == "segment_leaking":
             datasets = segment_leaking_creation(real_fd, substitute_fd, real_landmarks, substitute_landmarks)
 
+        result_tracking[scenario] = {}
+
         for key, value in datasets.items():
-            flaw_fd = value
+            flaw_fd, flaw_landmarks = value
             #### ------------ Shared kFPCA ------------ ####
             # Apply kFPCA on Real dataset
             lambda_ = basis_smoothing_hyperparameter_tuning(trimmed_real_fd, n_basis, domain_range)
@@ -73,7 +77,7 @@ if __name__ == "__main__":
             # Apply real kFPCA on synthetic dataset
             lambda_ = basis_smoothing_hyperparameter_tuning(flaw_fd, n_basis, domain_range)
             flaw_fd_smooth, _, _, _ = basis_smoothing_with_lambda(flaw_fd, lambda_, n_basis, domain_range)
-            flaw_aligned_fd, _ = landmark_registration(flaw_fd_smooth, real_landmarks_all, landmark_locations)
+            flaw_aligned_fd, _ = landmark_registration(flaw_fd_smooth, flaw_landmarks, landmark_locations)
             flaw_kfpca_embedding = real_kfpca.transform(flaw_aligned_fd)
 
             ## Evaluation: MMD, Mahalanobis, FPC KS, PRDC, LMR
@@ -96,7 +100,7 @@ if __name__ == "__main__":
 
             ## Evaluation: Gromov Wasserstein & Procrustes Analysis
             isomap_gw = gromov_wasserstein(real_isomap_embedding, flaw_isomap_embedding)
-            isomap_procrustes = procrustes(real_isomap_embedding, flaw_isomap_embedding)
+            isomap_procrustes = unpaired_procrustes(real_isomap_embedding, flaw_isomap_embedding)
 
             # Apply t-SNE on real and synthetic kFPCA scores separately
             real_tsne_embedding = tsne_trasformation(real_kfpca_embedding)
@@ -148,8 +152,7 @@ if __name__ == "__main__":
             # Apply kPCA on real and transform synthetic 
             real_kpca_n_components = kpca_tune_n_components(real_kfpca_embedding)
             real_kpca_gamma = tune_gamma(real_kfpca_embedding)
-            real_kpca = kpca_with_param(real_kfpca_embedding, real_kpca_n_components, real_kpca_gamma)
-            real_kpca_embedding = real_kpca.transform(real_kfpca_embedding)
+            real_kpca_embedding, real_kpca = kpca_with_param(real_kfpca_embedding, real_kpca_n_components, real_kpca_gamma)
             flaw_kpca_embedding = real_kpca.transform(flaw_kfpca_embedding)
 
             ## Evaluation: MMD, Mahalanobis, FPC KS, PRDC, LMR
@@ -160,12 +163,12 @@ if __name__ == "__main__":
             kpca_lmr = local_mixing_ratio(real_kpca_embedding, flaw_kpca_embedding)
 
             #### ------------ Result Display ------------ ####
+            result_tracking[scenario][key] = {}
             ## Shared kFPCA
             # FPC Score MMD, Mahalanobis, FPC KS, PRDC, LMR
-            print("Shared kFPCA: MMD")
-            print(f"    MMD: {kfpca_score_mmd}")
-            print(f"    Mahalanobis: {kfpca_score_mahalanobis}")
-            print(f"    FPC KS: {kfpca_score_ks}")
+            result_tracking[scenario][key]['kfpca_score_mmd'] = kfpca_score_mmd
+            result_tracking[scenario][key]['kfpca_score_mahalanobis'] = kfpca_score_mahalanobis
+            result_tracking[scenario][key]['kfpca_score_ks'] = kfpca_score_ks
 
             plt.plot(kfpca_prdc[4], kfpca_prdc[0], label="Precision")
             plt.plot(kfpca_prdc[4], kfpca_prdc[1], label="Recall")
@@ -188,23 +191,19 @@ if __name__ == "__main__":
             plt.close()
 
             # Isomap: Gromov Wasserstein & Procrustes Analysis
-            print("Isomap: Gromov Wasserstein & Procrustes Analysis")
-            print(f"    Gromov Wasserstein: {isomap_gw}")
-            print(f"    Procrustes Similarity: {isomap_procrustes["unpaired_similarity_score"]}")
+            result_tracking[scenario][key]['isomap_gw'] = isomap_gw
+            result_tracking[scenario][key]['isomap_procrustes'] = isomap_procrustes['unpaired_similarity_score']
 
             # t-SNE: Gromov Wasserstein
-            print("t-SNE: Gromov Wasserstein")
-            print(f"    Gromov Wasserstein: {tsne_gw}")
+            result_tracking[scenario][key]['tsne_gw'] = tsne_gw
 
             # Individual Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
-            print("Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve")
-            print(f"    Gromov Wasserstein: {dmap_gw}")
-            print(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse["entropy_rmse"]}")
+            result_tracking[scenario][key]['dmap_gw'] = dmap_gw
+            result_tracking[scenario][key]['dmap_entropy_rmse'] = dmap_entropy_rmse['entropy_rmse']
 
             # Shared Diffusion Map: JS Divergence, MMD, PRDC, LMR
-            print("Diffusion Map: JS Divergence, MMD, PRDC, LMR")
-            print(f"    JS Divergence: {dmap_js_divergence}")
-            print(f"    MMD: {dmap_mmd}")
+            result_tracking[scenario][key]['dmap_js_divergence'] = dmap_js_divergence
+            result_tracking[scenario][key]['dmap_mmd'] = dmap_mmd
 
             plt.plot(dmap_prdc[4], dmap_prdc[0], label="Precision")
             plt.plot(dmap_prdc[4], dmap_prdc[1], label="Recall")
@@ -227,13 +226,11 @@ if __name__ == "__main__":
             plt.close()
 
             # Individual UMAP: Gromov Wasserstein
-            print("UMAP: Gromov Wasserstein")
-            print(f"    Gromov Wasserstein: {umap_gw}")
+            result_tracking[scenario][key]['umap_gw'] = umap_gw
 
             # Shared UMAP: JS Divergence, MMD, PRDC, LMR
-            print("UMAP: JS Divergence, MMD, PRDC, LMR")
-            print(f"    JS Divergence: {umap_js_divergence}")
-            print(f"    MMD: {umap_mmd}")
+            result_tracking[scenario][key]['umap_js_divergence'] = umap_js_divergence
+            result_tracking[scenario][key]['umap_mmd'] = umap_mmd
 
             plt.plot(umap_prdc[4], umap_prdc[0], label="Precision")
             plt.plot(umap_prdc[4], umap_prdc[1], label="Recall")
@@ -256,10 +253,9 @@ if __name__ == "__main__":
             plt.close()
 
             # kPCA: MMD, Mahalanobis, FPC KS, PRDC, LMR
-            print("kPCA: MMD, Mahalanobis, FPC KS, PRDC, LMR")
-            print(f"    MMD: {kpca_score_mmd}")
-            print(f"    Mahalanobis: {kpca_score_mahalanobis}")
-            print(f"    FPC KS: {kpca_score_ks}")
+            result_tracking[scenario][key]['kpca_score_mmd'] = kpca_score_mmd
+            result_tracking[scenario][key]['kpca_score_mahalanobis'] = kpca_score_mahalanobis
+            result_tracking[scenario][key]['kpca_score_ks'] = kpca_score_ks
 
             plt.plot(kpca_prdc[4], kpca_prdc[0], label="Precision")
             plt.plot(kpca_prdc[4], kpca_prdc[1], label="Recall")
@@ -280,3 +276,10 @@ if __name__ == "__main__":
             plt.legend()
             plt.savefig(save_path + f"kPCA_LMR_{scenario}_{key}.png")
             plt.close()
+
+    # Print Result Tracking
+    for scenario in scenarios:
+        for key in datasets[scenario].keys():
+            print(f"Scenario: {scenario}, Flaw Scale: {key}")
+            for key, value in result_tracking[scenario][key].items():
+                print(f"    {key}: {value}")

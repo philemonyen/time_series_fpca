@@ -6,7 +6,7 @@ from scipy.stats import ks_2samp
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics.pairwise import rbf_kernel
 from scipy.spatial.distance import cdist, pdist, squareform, jensenshannon
-from scipy.spatial import procrustes
+from scipy.spatial import procrustes as scipy_procrustes
 from scipy.linalg import orthogonal_procrustes
 from scipy.optimize import linear_sum_assignment
 from pydiffmap import diffusion_map as dm
@@ -129,7 +129,7 @@ def mahalanobis(real_scores: np.ndarray, synthetic_scores: np.ndarray) -> dict:
     
     return float(np.mean(mahal_distances))
 
-def calculate_procrustes_alignment(real_coords: np.ndarray, synthetic_coords: np.ndarray) -> Dict[str, float]:
+def paired_procrustes(real_coords: np.ndarray, synthetic_coords: np.ndarray) -> Dict[str, float]:
     """
     Computes standard Procrustes Analysis between two PAIRED coordinate matrices of identical shape.
     Use this if your synthetic data has a direct 1-to-1 sample correspondence with the real data
@@ -149,9 +149,8 @@ def calculate_procrustes_alignment(real_coords: np.ndarray, synthetic_coords: np
     if real_coords.shape != synthetic_coords.shape:
         raise ValueError("Real and Synthetic coordinate matrices must have identical shapes for paired Procrustes.")
         
-    # scipy's procrustes automatically standardizes (centers and scales to unit trace norm)
-    # and finds the optimal rotation/reflection matrix.
-    mtx1_std, mtx2_aligned, disparity = procrustes(real_coords, synthetic_coords)
+    # 2. Use the aliased scipy_procrustes here
+    mtx1_std, mtx2_aligned, disparity = scipy_procrustes(real_coords, synthetic_coords)
     
     # Extract explicit rotation matrix R using orthogonal procrustes on standardized shapes
     R, _ = orthogonal_procrustes(mtx2_aligned, mtx1_std)
@@ -164,9 +163,9 @@ def calculate_procrustes_alignment(real_coords: np.ndarray, synthetic_coords: np
     }
 
 
-def procrustes(real_coords: np.ndarray, 
-                synthetic_coords: np.ndarray, 
-                max_samples: int = 2000) -> Dict[str, float]:
+def unpaired_procrustes(real_coords: np.ndarray, 
+                                  synthetic_coords: np.ndarray, 
+                                  max_samples: int = 2000) -> Dict[str, float]:
     """
     Computes Procrustes Analysis for UNPAIRED generative datasets by finding the optimal
     topological point correspondence via Linear Sum Assignment (Hungarian Algorithm).
@@ -196,7 +195,6 @@ def procrustes(real_coords: np.ndarray,
     Y = synthetic_coords[idx_synth]
     
     # 2. Initial coarse alignment via Principal Component orientation (aligning centroids and axes)
-    # This prevents the distance matrix from being confused by arbitrary global rotations
     X_centered = X - np.mean(X, axis=0)
     Y_centered = Y - np.mean(Y, axis=0)
     
@@ -218,8 +216,8 @@ def procrustes(real_coords: np.ndarray,
     Y_matched = Y[col_indices]
     X_matched = X[row_indices]
     
-    # 6. Run exact Procrustes on the perfectly paired point clouds
-    mtx1_std, mtx2_aligned, disparity = procrustes(X_matched, Y_matched)
+    # 6. Use the aliased scipy_procrustes here to prevent recursion!
+    mtx1_std, mtx2_aligned, disparity = scipy_procrustes(X_matched, Y_matched)
     
     return {
         "unpaired_procrustes_disparity": float(disparity),
@@ -303,13 +301,13 @@ def pc_alignment(real_components: np.ndarray, synthetic_components: np.ndarray) 
         v = synthetic_components[i]
         
         # Absolute cosine similarity to neutralize sign-flipping (-1 factor)
-        cos_sim = np.abs(np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v)))
+        cos_sim = np.abs(np.dot(u.T, v) / (np.linalg.norm(u) * np.linalg.norm(v)))
         cosine_similarities.append(float(cos_sim))
         
     # Grassmannian Subspace Overlap (Projection Matrix Similarity)
     # U and V should be orthonormal matrices of shape (features, components)
-    U = real_components.T
-    V = synthetic_components.T
+    U = real_components.squeeze().T
+    V = synthetic_components.squeeze().T
     
     # Tr(U^T * V * V^T * U) / k yields a score between 0 (orthogonal) and 1 (identical subspace)
     subspace_overlap = np.trace(U.T @ V @ V.T @ U) / n_components
@@ -324,7 +322,8 @@ def pc_alignment(real_components: np.ndarray, synthetic_components: np.ndarray) 
 def grid_js_divergence(real_coords: np.ndarray, 
                                  synthetic_coords: np.ndarray, 
                                  bins: int = 50, 
-                                 epsilon: float = 1e-10) -> float:
+                                 epsilon: float = 1e-10,
+                                 max_dims: int = 2) -> float:
     """
     Computes the Jensen-Shannon Divergence between two sets of coordinates in a shared embedding space
     by constructing an n-dimensional probability density grid.
@@ -339,11 +338,19 @@ def grid_js_divergence(real_coords: np.ndarray,
         Number of grid bins per dimension.
     epsilon : float
         Small smoothing factor to prevent division by zero or log(0).
+    max_dims : int
+        Number of leading coordinates to histogram. Grid size grows as bins**max_dims, so
+        high-dimensional embeddings (e.g. diffusion maps with n_evecs=30) must be truncated.
         
     Returns:
     --------
     float : The JS Divergence bounded between 0.0 (identical) and 1.0 (completely disjoint in log base 2).
     """
+
+    if real_coords.shape[1] > max_dims:
+        real_coords = real_coords[:, :max_dims]
+        synthetic_coords = synthetic_coords[:, :max_dims]
+
     # 1. Determine global bounding box across both datasets so grid edges align perfectly
     combined = np.vstack([real_coords, synthetic_coords])
     min_edges = np.min(combined, axis=0)

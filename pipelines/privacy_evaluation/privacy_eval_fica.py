@@ -108,8 +108,7 @@ if __name__ == "__main__":
     # Apply kPCA on holdout FICA scores
     holdout_kpca_n_components = kpca_tune_n_components(holdout_fica_scores)
     holdout_kpca_gamma = tune_gamma(holdout_fica_scores)
-    holdout_kpca = kpca_with_param(holdout_fica_scores, holdout_kpca_n_components, holdout_kpca_gamma)
-    holdout_kpca_embedding = holdout_kpca.transform(holdout_fica_scores)
+    holdout_kpca_embedding, holdout_kpca = kpca_with_param(holdout_fica_scores, holdout_kpca_n_components, holdout_kpca_gamma)
 
     # Apply holdout kPCA on real FICA scores
     real_kpca_embedding = holdout_kpca.transform(real_fica_scores)

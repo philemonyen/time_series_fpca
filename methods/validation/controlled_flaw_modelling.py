@@ -3,7 +3,7 @@ import numpy as np
 from skfda import FDataGrid
 from scipy.ndimage import uniform_filter1d
 
-def oversmoothing(fd, window_size = 5):
+def oversmoothing(fd, landmarks, window_size = 5):
     """
     Simulates a generative model that fails to capture high-frequency variance 
     by over-smoothing the synthetic functional data.
@@ -18,7 +18,7 @@ def oversmoothing(fd, window_size = 5):
     return FDataGrid(
         data_matrix=smoothed_data, 
         grid_points=fd.grid_points,
-    )
+    ), landmarks
 
 def full_memorization(fd_real, fd_substitute, landmarks_real, landmarks_substitute, fraction = 0.1):
     """
@@ -46,7 +46,7 @@ def full_memorization(fd_real, fd_substitute, landmarks_real, landmarks_substitu
         grid_points=fd_substitute.grid_points,
     ), syn_landmarks
 
-def gaussian_noise(real_data_fd, noise_multiplier=1.5):
+def gaussian_noise(real_data_fd, landmarks, noise_multiplier=1.5):
     """
     Adds extreme Gaussian noise relative to the standard deviation of the data.
     """
@@ -56,7 +56,7 @@ def gaussian_noise(real_data_fd, noise_multiplier=1.5):
     
     synthetic_ds = real_data + heavy_noise
 
-    return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points)
+    return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points), landmarks
 
 def mode_collapse(real_data_fd, real_landmarks, num_modes=5, target_size=500, spike_ratio=0.10):
     """
