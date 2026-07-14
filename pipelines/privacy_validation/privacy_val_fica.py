@@ -5,7 +5,7 @@ from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, 
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from methods.transformation.fda.fpca import fpca_with_param
 from methods.transformation.fda.fica import compute_fica
-from methods.transformation.nonlinear.diffusion_map import dmap_tune_n_components, dmap_fit
+from methods.transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from methods.transformation.nonlinear.umap import tune_umap
 from methods.transformation.nonlinear.kpca import kpca_tune_n_components, kpca_with_param, tune_gamma
 from methods.evaluation.privacy import *
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     sampled_idx = np.random.choice(n_samples, size=2 * n_data, replace=False)
     real_idx = sampled_idx[:n_data]
     holdout_idx = sampled_idx[n_data:2*n_data]
-    substitute_idx = sampled_idx[2*n_data:]
+    substitute_idx = sampled_idx[2*n_data:3*n_data]
 
     real_fd = trimmed_real_fd[real_idx]
     real_landmarks = real_landmarks_all[real_idx]
@@ -96,18 +96,18 @@ if __name__ == "__main__":
             fica_density_ratio = domias(holdout_fica_scores, real_fica_scores, flaw_fica_scores)
 
             # Apply Diffusion Map on holdout FICA scores
-            holdout_dmap_n_components = dmap_tune_n_components(holdout_fica_scores)
-            holdout_dmap = dmap_fit(holdout_fica_scores, holdout_dmap_n_components)
+            holdout_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(holdout_fica_scores)
+            holdout_dmap_evals = holdout_dmap.evals_
             holdout_dmap_embedding = holdout_dmap.transform(holdout_fica_scores)
 
             # Apply holdout diffusion map on real FICA scores
             real_dmap_embedding = holdout_dmap.transform(real_fica_scores)
 
             # Apply holdout diffusion map on flaw FICA scores
-            synthetic_dmap_embedding = holdout_dmap.transform(flaw_fica_scores)
+            flaw_dmap_embedding = holdout_dmap.transform(flaw_fica_scores)
 
             ## Evaluation: DOMIAS on Diffusion map embeddings
-            dmap_density_ratio = domias(holdout_dmap_embedding, real_dmap_embedding, synthetic_dmap_embedding)
+            dmap_density_ratio = domias(holdout_dmap_embedding, real_dmap_embedding, flaw_dmap_embedding)
 
             # Apply UMAP on holdout FICA scores
             holdout_umap = tune_umap(holdout_fica_scores)
@@ -219,5 +219,74 @@ if __name__ == "__main__":
             plt.xlabel('Bandwidth')
             plt.ylabel('Log Density Ratio')
             plt.title('Log kPCA Density Ratio vs. Kernel Bandwidth')
-            plt.savefig(save_path + 'kpca_density_ratio_vs_bandwidth.png')
+            plt.savefig(save_path + f'kpca_density_ratio_vs_bandwidth_{scenario}_{key}.png')
+            plt.close()
+
+            # Full-Knowledge MIA: FICA + Diffusion Map
+            real_fica_dmap = np.concatenate([real_fica_scores, real_dmap_embedding], axis=1)
+            flaw_fica_dmap = np.concatenate([flaw_fica_scores, flaw_dmap_embedding], axis=1)
+            fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_fica_dmap, flaw_fica_dmap)
+            print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
+
+            plt.figure(figsize=(7, 6))
+            plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+            plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+            plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+            plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+            plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+            plt.xlim([-0.02, 1.02])
+            plt.ylim([-0.02, 1.02])
+            plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+            plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+            plt.title('FICA + Diffusion Map Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
+            plt.legend(loc="lower right", frameon=True, shadow=True)
+            plt.grid(True, linestyle=':', alpha=0.6)
+            plt.tight_layout()
+            plt.savefig(save_path + f'fica_dmap_full_knowledge_mia_roc_curve_{scenario}_{key}.png', dpi=300)
+            plt.close()
+
+            # Full-Knowledge MIA: FICA + UMAP
+            real_fica_umap = np.concatenate([real_fica_scores, real_umap_embedding], axis=1)
+            flaw_fica_umap = np.concatenate([flaw_fica_scores, flaw_umap_embedding], axis=1)
+            fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_fica_umap, flaw_fica_umap)
+            print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
+
+            plt.figure(figsize=(7, 6))
+            plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+            plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+            plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+            plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+            plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+            plt.xlim([-0.02, 1.02])
+            plt.ylim([-0.02, 1.02])
+            plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+            plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+            plt.title('FICA + UMAP Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
+            plt.legend(loc="lower right", frameon=True, shadow=True)
+            plt.grid(True, linestyle=':', alpha=0.6)
+            plt.tight_layout()
+            plt.savefig(save_path + f'fica_umap_full_knowledge_mia_roc_curve_{scenario}_{key}.png', dpi=300)
+            plt.close()
+
+            # Full-Knowledge MIA: FICA + kPCA
+            real_fica_kpca = np.concatenate([real_fica_scores, real_kpca_embedding], axis=1)
+            flaw_fica_kpca = np.concatenate([flaw_fica_scores, flaw_kpca_embedding], axis=1)
+            fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_fica_kpca, flaw_fica_kpca)
+            print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
+
+            plt.figure(figsize=(7, 6))
+            plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+            plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+            plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+            plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+            plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+            plt.xlim([-0.02, 1.02])
+            plt.ylim([-0.02, 1.02])
+            plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+            plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+            plt.title('FICA + kPCA Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
+            plt.legend(loc="lower right", frameon=True, shadow=True)
+            plt.grid(True, linestyle=':', alpha=0.6)
+            plt.tight_layout()
+            plt.savefig(save_path + f'fica_kpca_full_knowledge_mia_roc_curve_{scenario}_{key}.png', dpi=300)
             plt.close()

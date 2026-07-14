@@ -22,7 +22,7 @@ def optimize_tsne_perplexity(score_matrix, n_components=2, k_neighbors=5):
     best_embeddings : numpy.ndarray
     results : dict mapping perplexity to trustworthiness score
     """
-    perplexity_range = np.arange(5, int(score_matrix.shape[0] / 20), 5)
+    perplexity_range = [30, 40, 50]
     best_score = -1.0
     best_perplexity = None
     best_embeddings = None

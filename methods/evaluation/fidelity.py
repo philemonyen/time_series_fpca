@@ -187,12 +187,16 @@ def unpaired_procrustes(real_coords: np.ndarray,
     n_real = len(real_coords)
     n_synth = len(synthetic_coords)
     n_match = min(n_real, n_synth, max_samples)
+
+    real_dim = real_coords.shape[1]
+    synth_dim = synthetic_coords.shape[1]
+    match_dim = min(real_dim, synth_dim)
     
     idx_real = np.random.choice(n_real, n_match, replace=False) if n_real > n_match else np.arange(n_real)
     idx_synth = np.random.choice(n_synth, n_match, replace=False) if n_synth > n_match else np.arange(n_synth)
     
-    X = real_coords[idx_real]
-    Y = synthetic_coords[idx_synth]
+    X = real_coords[idx_real][:, :match_dim]
+    Y = synthetic_coords[idx_synth][:, :match_dim]
     
     # 2. Initial coarse alignment via Principal Component orientation (aligning centroids and axes)
     X_centered = X - np.mean(X, axis=0)

@@ -8,7 +8,7 @@ from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoo
 from methods.transformation.fda.kfpca import kfpca_with_param, kfpca_tune_gamma, kfpca_tuning_n_components
 from methods.transformation.nonlinear.isomap import find_optimal_k, find_optimal_manifold_dim
 from methods.transformation.nonlinear.tsne import tsne_trasformation
-from methods.transformation.nonlinear.diffusion_map import dmap_tune_n_components, dmap_fit
+from methods.transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from methods.transformation.nonlinear.umap import tune_umap
 from methods.transformation.nonlinear.kpca import kpca_tune_n_components, kpca_with_param, tune_gamma
 from methods.evaluation.fidelity import *
@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
     ## Evaluation: Gromov Wasserstein & Procrustes Analysis
     isomap_gw = gromov_wasserstein(real_isomap_embedding, synthetic_isomap_embedding)
-    isomap_procrustes = procrustes(real_isomap_embedding, synthetic_isomap_embedding)
+    isomap_procrustes = unpaired_procrustes(real_isomap_embedding, synthetic_isomap_embedding)
 
     # Apply t-SNE on real and synthetic kFPCA scores separately
     real_tsne_embedding = tsne_trasformation(real_kfpca_embedding)
@@ -87,17 +87,17 @@ if __name__ == "__main__":
     tsne_gw = gromov_wasserstein(real_tsne_embedding, synthetic_tsne_embedding)
 
     # Apply Diffusion Map on real and synthetic kFPCA scores separately
-    real_dmap_n_components = dmap_tune_n_components(real_kfpca_embedding)
-    real_dmap = dmap_fit(real_kfpca_embedding, real_dmap_n_components)
+    real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_kfpca_embedding)
+    real_dmap_evals = real_dmap.evals_
     real_dmap_embedding = real_dmap.transform(real_kfpca_embedding)
 
-    synthetic_dmap_n_components = dmap_tune_n_components(synthetic_kfpca_embedding)
-    synthetic_dmap = dmap_fit(synthetic_kfpca_embedding, synthetic_dmap_n_components)
+    synthetic_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(synthetic_kfpca_embedding)
+    synthetic_dmap_evals = synthetic_dmap.evals_
     synthetic_dmap_embedding = synthetic_dmap.transform(synthetic_kfpca_embedding)
 
     ## Evaluation: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
     dmap_gw = gromov_wasserstein(real_dmap_embedding, synthetic_dmap_embedding)
-    dmap_entropy_rmse = diffusion_map_entropy_rmse(real_dmap, synthetic_dmap)
+    dmap_entropy_rmse = diffusion_map_entropy_rmse(real_dmap_evals, synthetic_dmap_evals)
 
     # Apply Diffusion Map on real and transform synthetic 
     synthetic_dmap_embedding_shared_real = real_dmap.transform(synthetic_kfpca_embedding)

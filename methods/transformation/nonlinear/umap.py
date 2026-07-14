@@ -21,11 +21,10 @@ def tune_umap(X):
     trustworthiness should be at least 0.85
     """
     ## Determine mn_neighbors_grid and min_dist_grid
-    n_neighbors_grid = np.arange(5, int(X.shape[0] / 20), 5)
-    min_dist_grid = np.arange(0, 0.1, 0.01)
+    n_neighbors_grid = [15, 30, 50]
+    min_dist_grid = [0, 0.1, 0.5]
     
     best_score = -1.0
-    best_params = {}
     best_reducer = None
     
     # Iterate through every combination of parameters
@@ -53,6 +52,5 @@ def tune_umap(X):
         # Update best score
         if score > best_score:
             best_score = score
-            best_params = {'n_neighbors': n_neighbors, 'min_dist': min_dist}
             best_reducer = reducer    
     return best_reducer

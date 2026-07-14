@@ -9,7 +9,7 @@ from methods.transformation.fda.fpca import fpca_with_param
 from methods.transformation.fda.fica import compute_fica
 from methods.transformation.nonlinear.isomap import find_optimal_k, find_optimal_manifold_dim
 from methods.transformation.nonlinear.tsne import tsne_trasformation
-from methods.transformation.nonlinear.diffusion_map import dmap_tune_n_components, dmap_fit
+from methods.transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from methods.transformation.nonlinear.umap import tune_umap
 from methods.transformation.nonlinear.kpca import kpca_tune_n_components, kpca_with_param, tune_gamma
 from methods.evaluation.fidelity import *
@@ -40,8 +40,8 @@ if __name__ == "__main__":
 
     real_fd = trimmed_real_fd[:n_data]
     real_landmarks = real_landmarks_all[:n_data]
-    substitute_fd = trimmed_real_fd[n_data:]
-    substitute_landmarks = real_landmarks_all[n_data:]
+    substitute_fd = trimmed_real_fd[n_data:2*n_data]
+    substitute_landmarks = real_landmarks_all[n_data:2*n_data]
 
     # Create Controlled Flaw Dataset
     scenarios = ["oversmoothing", "memorization", "gaussian_noise", "mode_collapse_vary_modes", "mode_collapse_vary_spike_ratio", "segment_leaking"]
@@ -121,17 +121,17 @@ if __name__ == "__main__":
             tsne_gw = gromov_wasserstein(real_tsne_embedding, flaw_tsne_embedding)
 
             # Apply Diffusion Map on real and synthetic FIC scores separately
-            real_dmap_n_components = dmap_tune_n_components(real_fica_scores)
-            real_dmap = dmap_fit(real_fica_scores, real_dmap_n_components)
+            real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_fica_scores)
+            real_dmap_evals = real_dmap.evals_
             real_dmap_embedding = real_dmap.transform(real_fica_scores)
 
-            flaw_dmap_n_components = dmap_tune_n_components(shared_flaw_scores)
-            flaw_dmap = dmap_fit(shared_flaw_scores, flaw_dmap_n_components)
+            flaw_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(shared_flaw_scores)
+            flaw_dmap_evals = flaw_dmap.evals_
             flaw_dmap_embedding = flaw_dmap.transform(shared_flaw_scores)
 
             ## Evaluation: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
             dmap_gw = gromov_wasserstein(real_dmap_embedding, flaw_dmap_embedding)
-            dmap_entropy_rmse = diffusion_map_entropy_rmse(real_dmap, flaw_dmap)
+            dmap_entropy_rmse = diffusion_map_entropy_rmse(real_dmap_evals, flaw_dmap_evals)
 
             # Apply Diffusion Map on real and transform synthetic 
             flaw_dmap_embedding_shared_real = real_dmap.transform(shared_flaw_scores)
@@ -294,7 +294,7 @@ if __name__ == "__main__":
 
     # Print Result Tracking
     for scenario in scenarios:
-        for key in datasets[scenario].keys():
+        for key in result_tracking[scenario].keys():
             print(f"Scenario: {scenario}, Flaw Scale: {key}")
             for key, value in result_tracking[scenario][key].items():
                 print(f"    {key}: {value}")
