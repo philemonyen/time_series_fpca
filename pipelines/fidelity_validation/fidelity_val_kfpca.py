@@ -71,7 +71,7 @@ if __name__ == "__main__":
             real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(trimmed_real_fd, lambda_, n_basis, domain_range)
             real_aligned_fd, _ = landmark_registration(real_fd_smooth, real_landmarks_all, landmark_locations)
             kfpca_optimal_gamma = kfpca_tune_gamma(real_aligned_fd)
-            kfpca_optimal_n_components = kfpca_tuning_n_components(real_aligned_fd)
+            kfpca_optimal_n_components = kfpca_tuning_n_components(real_aligned_fd, kfpca_optimal_gamma)
             real_kfpca_embedding, real_kfpca = kfpca_with_param(real_aligned_fd, kfpca_optimal_n_components, kfpca_optimal_gamma)
 
             # Apply real kFPCA on synthetic dataset
@@ -278,8 +278,10 @@ if __name__ == "__main__":
             plt.close()
 
     # Print Result Tracking
-    for scenario in scenarios:
-        for key in result_tracking[scenario].keys():
-            print(f"Scenario: {scenario}, Flaw Scale: {key}")
-            for key, value in result_tracking[scenario][key].items():
-                print(f"    {key}: {value}")
+    with open(save_path + f"fidelity_val_kfpca_result.txt", "w") as f:
+        for scenario in scenarios:
+            for key in result_tracking[scenario].keys():
+                f.write(f"Scenario: {scenario}, Flaw Scale: {key}\n")
+                for key, value in result_tracking[scenario][key].items():
+                    f.write(f"    {key}: {value}\n")
+                f.write("\n")

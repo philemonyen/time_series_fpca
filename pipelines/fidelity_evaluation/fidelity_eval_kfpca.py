@@ -48,7 +48,7 @@ if __name__ == "__main__":
     real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(trimmed_real_fd, lambda_, n_basis, domain_range)
     real_aligned_fd, _ = landmark_registration(real_fd_smooth, real_landmarks_all, landmark_locations)
     kfpca_optimal_gamma = kfpca_tune_gamma(real_aligned_fd)
-    kfpca_optimal_n_components = kfpca_tuning_n_components(real_aligned_fd)
+    kfpca_optimal_n_components = kfpca_tuning_n_components(real_aligned_fd, kfpca_optimal_gamma)
     real_kfpca_embedding, real_kfpca = kfpca_with_param(real_aligned_fd, kfpca_optimal_n_components, kfpca_optimal_gamma)
 
     # Apply real kFPCA on synthetic dataset
@@ -142,10 +142,11 @@ if __name__ == "__main__":
     #### ------------ Result Display ------------ ####
     ## Shared kFPCA
     # FPC Score MMD, Mahalanobis, FPC KS, PRDC, LMR
-    print("Shared kFPCA: MMD")
-    print(f"    MMD: {kfpca_score_mmd}")
-    print(f"    Mahalanobis: {kfpca_score_mahalanobis}")
-    print(f"    FPC KS: {kfpca_score_ks}")
+    f = open(save_path + "kFPCA_result.txt", "w")
+    f.write("Shared kFPCA: MMD\n")
+    f.write(f"    MMD: {kfpca_score_mmd}\n")
+    f.write(f"    Mahalanobis: {kfpca_score_mahalanobis}\n")
+    f.write(f"    FPC KS: {kfpca_score_ks}\n")
 
     plt.plot(kfpca_prdc[4], kfpca_prdc[0], label="Precision")
     plt.plot(kfpca_prdc[4], kfpca_prdc[1], label="Recall")
@@ -168,23 +169,23 @@ if __name__ == "__main__":
     plt.close()
 
     # Isomap: Gromov Wasserstein & Procrustes Analysis
-    print("Isomap: Gromov Wasserstein & Procrustes Analysis")
-    print(f"    Gromov Wasserstein: {isomap_gw}")
-    print(f"    Procrustes Similarity: {isomap_procrustes['unpaired_similarity_score']}")
+    f.write("Isomap: Gromov Wasserstein & Procrustes Analysis\n")
+    f.write(f"    Gromov Wasserstein: {isomap_gw}\n")
+    f.write(f"    Procrustes Similarity: {isomap_procrustes['unpaired_similarity_score']}\n")
 
     # t-SNE: Gromov Wasserstein
-    print("t-SNE: Gromov Wasserstein")
-    print(f"    Gromov Wasserstein: {tsne_gw}")
+    f.write("t-SNE: Gromov Wasserstein\n")
+    f.write(f"    Gromov Wasserstein: {tsne_gw}\n")
 
     # Individual Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve
-    print("Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve")
-    print(f"    Gromov Wasserstein: {dmap_gw}")
-    print(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse['entropy_rmse']}")
+    f.write("Diffusion Map: Gromov Wasserstein & RMSE on Von Neumann Entropy Curve\n")
+    f.write(f"    Gromov Wasserstein: {dmap_gw}\n")
+    f.write(f"    RMSE on Von Neumann Entropy Curve: {dmap_entropy_rmse['entropy_rmse']}\n")
 
     # Shared Diffusion Map: JS Divergence, MMD, PRDC, LMR
-    print("Diffusion Map: JS Divergence, MMD, PRDC, LMR")
-    print(f"    JS Divergence: {dmap_js_divergence}")
-    print(f"    MMD: {dmap_mmd}")
+    f.write("Diffusion Map: JS Divergence, MMD, PRDC, LMR\n")
+    f.write(f"    JS Divergence: {dmap_js_divergence}\n")
+    f.write(f"    MMD: {dmap_mmd}\n")
 
     plt.plot(dmap_prdc[4], dmap_prdc[0], label="Precision")
     plt.plot(dmap_prdc[4], dmap_prdc[1], label="Recall")
@@ -207,13 +208,13 @@ if __name__ == "__main__":
     plt.close()
 
     # Individual UMAP: Gromov Wasserstein
-    print("UMAP: Gromov Wasserstein")
-    print(f"    Gromov Wasserstein: {umap_gw}")
+    f.write("UMAP: Gromov Wasserstein\n")
+    f.write(f"    Gromov Wasserstein: {umap_gw}\n")
 
     # Shared UMAP: JS Divergence, MMD, PRDC, LMR
-    print("UMAP: JS Divergence, MMD, PRDC, LMR")
-    print(f"    JS Divergence: {umap_js_divergence}")
-    print(f"    MMD: {umap_mmd}")
+    f.write("UMAP: JS Divergence, MMD, PRDC, LMR\n")
+    f.write(f"    JS Divergence: {umap_js_divergence}\n")
+    f.write(f"    MMD: {umap_mmd}\n")
 
     plt.plot(umap_prdc[4], umap_prdc[0], label="Precision")
     plt.plot(umap_prdc[4], umap_prdc[1], label="Recall")
@@ -236,10 +237,11 @@ if __name__ == "__main__":
     plt.close()
 
     # kPCA: MMD, Mahalanobis, FPC KS, PRDC, LMR
-    print("kPCA: MMD, Mahalanobis, FPC KS, PRDC, LMR")
-    print(f"    MMD: {kpca_score_mmd}")
-    print(f"    Mahalanobis: {kpca_score_mahalanobis}")
-    print(f"    FPC KS: {kpca_score_ks}")
+    f.write("kPCA: MMD, Mahalanobis, FPC KS, PRDC, LMR\n")
+    f.write(f"    MMD: {kpca_score_mmd}\n")
+    f.write(f"    Mahalanobis: {kpca_score_mahalanobis}\n")
+    f.write(f"    FPC KS: {kpca_score_ks}\n")
+    f.close()
 
     plt.plot(kpca_prdc[4], kpca_prdc[0], label="Precision")
     plt.plot(kpca_prdc[4], kpca_prdc[1], label="Recall")

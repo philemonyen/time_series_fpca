@@ -303,8 +303,10 @@ if __name__ == "__main__":
             result_tracking[scenario][key]['principal_curve_wd'] = principal_curve_wd
     
     # Print Result Tracking
-    for scenario in scenarios:
-        for key in result_tracking[scenario].keys():
-            print(f"Scenario: {scenario}, Flaw Scale: {key}")
-            for key, value in result_tracking[scenario][key].items():
-                print(f"    {key}: {value}")
+    with open(save_path + f"fidelity_val_fpca_result.txt", "w") as f:
+        for scenario in scenarios:
+            for key in result_tracking[scenario].keys():
+                f.write(f"Scenario: {scenario}, Flaw Scale: {key}\n")
+                for key, value in result_tracking[scenario][key].items():
+                    f.write(f"    {key}: {value}\n")
+                f.write("\n")

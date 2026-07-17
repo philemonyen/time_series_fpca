@@ -27,7 +27,7 @@ def find_optimal_k(X, max_k=50):
     deltas = np.abs(np.diff(errors))
     max_drop = np.max(deltas)
     plateau_indices = np.where(deltas < (tolerance * max_drop))[0]
-    return plateau_indices[0] + 1
+    return plateau_indices[0] + 1 if len(plateau_indices) > 0 else len(deltas)
 
 def find_optimal_manifold_dim(X, k):
     errors = []

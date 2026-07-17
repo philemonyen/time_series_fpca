@@ -58,7 +58,7 @@ if __name__ == "__main__":
     holdout_fd_smooth, _, _, _ = basis_smoothing_with_lambda(holdout_fd, lambda_, n_basis, domain_range)
     holdout_aligned_fd, _ = landmark_registration(holdout_fd_smooth, holdout_landmarks, landmark_locations)
     kfpca_optimal_gamma = kfpca_tune_gamma(holdout_aligned_fd)
-    kfpca_optimal_n_components = kfpca_tuning_n_components(holdout_aligned_fd)
+    kfpca_optimal_n_components = kfpca_tuning_n_components(holdout_aligned_fd, kfpca_optimal_gamma)
     holdout_kfpca_embedding, holdout_kfpca = kfpca_with_param(holdout_aligned_fd, kfpca_optimal_n_components, kfpca_optimal_gamma)
 
     # Apply Holdout kFPCA on Real dataset
