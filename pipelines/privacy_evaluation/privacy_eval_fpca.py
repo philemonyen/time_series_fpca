@@ -88,53 +88,7 @@ if __name__ == "__main__":
     ## Evaluation: DOMIAS on Diffusion map embeddings
     dmap_density_ratio = domias(holdout_dmap_embedding, real_dmap_embedding, synthetic_dmap_embedding)
 
-    # Apply UMAP on holdout FPC scores
-    holdout_umap = tune_umap(holdout_scores)
-    holdout_umap_embedding = holdout_umap.transform(holdout_scores)
-
-    # Apply holdout UMAP on real FPC scores
-    real_umap_embedding = holdout_umap.transform(real_scores)
-
-    # Apply holdout UMAP on synthetic FPC scores
-    synthetic_umap_embedding = holdout_umap.transform(synthetic_scores)
-
-    ## Evaluation: DOMIAS on UMAP embeddings
-    umap_density_ratio = domias(holdout_umap_embedding, real_umap_embedding, synthetic_umap_embedding)
-
-    # Apply kPCA on holdout FPC scores
-    holdout_kpca_n_components = kpca_tune_n_components(holdout_scores)
-    holdout_kpca_gamma = tune_gamma(holdout_scores)
-    holdout_kpca_embedding, holdout_kpca = kpca_with_param(holdout_scores, holdout_kpca_n_components, holdout_kpca_gamma)
-    
-    # Apply holdout kPCA on real FPC scores
-    real_kpca_embedding = holdout_kpca.transform(real_scores)
-    # Apply holdout kPCA on synthetic FPC scores
-    synthetic_kpca_embedding = holdout_kpca.transform(synthetic_scores)
-    ## Evaluation: DOMIAS on kPCA embeddings
-    kpca_density_ratio = domias(holdout_kpca_embedding, real_kpca_embedding, synthetic_kpca_embedding)
-
     #### ------------ Result Display ------------ ####
-    bandwidth_grid = list(fpc_density_ratio.keys())
-    # FPCA DOMIAS
-    avg_fpc_privacy = []
-    for bandwidth, score in fpc_density_ratio.items():
-        avg= np.mean(score > 0)
-        avg_fpc_privacy.append(avg)
-
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log FPC Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'fpc_density_ratio_{bandwidth:.3f}.png')
-        plt.close()
-
-    plt.plot(bandwidth_grid, avg_fpc_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log FPC Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'fpc_density_ratio_vs_bandwidth.png')
-    plt.close()
-
     # Diffusion Map DOMIAS
     bandwidth_grid = list(dmap_density_ratio.keys())
     avg_dmap_privacy = []
@@ -154,48 +108,6 @@ if __name__ == "__main__":
     plt.ylabel('Log Density Ratio')
     plt.title('Log Diffusion Map Density Ratio vs. Kernel Bandwidth')
     plt.savefig(save_path + 'dmap_density_ratio_vs_bandwidth.png')
-    plt.close()
-
-    # UMAP DOMIAS
-    bandwidth_grid = list(umap_density_ratio.keys())
-    avg_umap_privacy = []
-    for bandwidth, score in umap_density_ratio.items():
-        avg = np.mean(score > 0)
-        avg_umap_privacy.append(avg)
-
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log UMAP Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'umap_density_ratio_{bandwidth:.3f}.png')
-        plt.close()
-    
-    plt.plot(bandwidth_grid, avg_umap_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log UMAP Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'umap_density_ratio_vs_bandwidth.png')
-    plt.close()
-
-    # kPCA DOMIAS
-    bandwidth_grid = list(kpca_density_ratio.keys())
-    avg_kpca_privacy = []
-    for bandwidth, score in kpca_density_ratio.items():
-        avg = np.mean(score > 0)
-        avg_kpca_privacy.append(avg)
-
-        plt.hist(score, bins=50, color='skyblue', edgecolor='black')
-        plt.xlabel('Log Density Ratio')
-        plt.ylabel('Frequency (Count)')
-        plt.title(f'Distribution of Log kPCA Density Ratio (Bandwidth: {bandwidth:.3f})')
-        plt.savefig(save_path + f'kpca_density_ratio_{bandwidth:.3f}.png')
-        plt.close()
-    
-    plt.plot(bandwidth_grid, avg_kpca_privacy)
-    plt.xlabel('Bandwidth')
-    plt.ylabel('Log Density Ratio')
-    plt.title('Log kPCA Density Ratio vs. Kernel Bandwidth')
-    plt.savefig(save_path + 'kpca_density_ratio_vs_bandwidth.png')
     plt.close()
 
     # Full-Knowledge MIA: FPCA + Diffusion Map
@@ -219,50 +131,4 @@ if __name__ == "__main__":
     plt.grid(True, linestyle=':', alpha=0.6)
     plt.tight_layout()
     plt.savefig(save_path + 'fpca_dmap_full_knowledge_mia_roc_curve.png', dpi=300)
-    plt.close()
-
-    # Full-Knowledge MIA: FPCA + UMAP
-    real_fpca_umap = np.concatenate([real_scores, real_umap_embedding], axis=1)
-    synthetic_fpca_umap = np.concatenate([synthetic_scores, synthetic_umap_embedding], axis=1)
-    fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_fpca_umap, synthetic_fpca_umap)
-    print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
-
-    plt.figure(figsize=(7, 6))
-    plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
-    plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
-    plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
-    plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
-    plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
-    plt.xlim([-0.02, 1.02])
-    plt.ylim([-0.02, 1.02])
-    plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
-    plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
-    plt.title('FPCA + UMAP Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
-    plt.legend(loc="lower right", frameon=True, shadow=True)
-    plt.grid(True, linestyle=':', alpha=0.6)
-    plt.tight_layout()
-    plt.savefig(save_path + 'fpca_umap_full_knowledge_mia_roc_curve.png', dpi=300)
-    plt.close()
-
-    # Full-Knowledge MIA: FPCA + kPCA
-    real_fpca_kpca = np.concatenate([real_scores, real_kpca_embedding], axis=1)
-    synthetic_fpca_kpca = np.concatenate([synthetic_scores, synthetic_kpca_embedding], axis=1)
-    fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_fpca_kpca, synthetic_fpca_kpca)
-    print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
-
-    plt.figure(figsize=(7, 6))
-    plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
-    plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
-    plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
-    plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
-    plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
-    plt.xlim([-0.02, 1.02])
-    plt.ylim([-0.02, 1.02])
-    plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
-    plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
-    plt.title('FPCA + kPCA Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
-    plt.legend(loc="lower right", frameon=True, shadow=True)
-    plt.grid(True, linestyle=':', alpha=0.6)
-    plt.tight_layout()
-    plt.savefig(save_path + 'fpca_kpca_full_knowledge_mia_roc_curve.png', dpi=300)
     plt.close()

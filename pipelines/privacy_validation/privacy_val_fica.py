@@ -42,14 +42,11 @@ if __name__ == "__main__":
     sampled_idx = np.random.choice(n_samples, size=2 * n_data, replace=False)
     real_idx = sampled_idx[:n_data]
     holdout_idx = sampled_idx[n_data:2*n_data]
-    substitute_idx = sampled_idx[2*n_data:3*n_data]
 
     real_fd = trimmed_real_fd[real_idx]
     real_landmarks = real_landmarks_all[real_idx]
     holdout_fd = trimmed_real_fd[holdout_idx]
     holdout_landmarks = real_landmarks_all[holdout_idx]
-    substitute_fd = trimmed_real_fd[substitute_idx]
-    substitute_landmarks = real_landmarks_all[substitute_idx]
 
     # Create Controlled Flaw Dataset
     scenarios = ["oversmoothing", "memorization", "gaussian_noise", "mode_collapse_vary_modes", "mode_collapse_vary_spike_ratio", "segment_leaking"]
@@ -58,7 +55,7 @@ if __name__ == "__main__":
         if scenario == "oversmoothing":
             datasets = oversmoothing_creation(real_fd, real_landmarks)
         elif scenario == "memorization":
-            datasets = memorization_creation(real_fd, substitute_fd, real_landmarks, substitute_landmarks)
+            datasets = memorization_creation(real_fd, holdout_fd, real_landmarks, holdout_landmarks)
         elif scenario == "gaussian_noise":
             datasets = gaussian_noise_creation(real_fd, real_landmarks)
         elif scenario == "mode_collapse_vary_modes":
@@ -66,7 +63,7 @@ if __name__ == "__main__":
         elif scenario == "mode_collapse_vary_spike_ratio":
             datasets = mode_collapse_vary_spike_ratio_creation(real_fd, real_landmarks)
         elif scenario == "segment_leaking":
-            datasets = segment_leaking_creation(real_fd, substitute_fd, real_landmarks, substitute_landmarks)
+            datasets = segment_leaking_creation(real_fd, holdout_fd, real_landmarks, holdout_landmarks)
 
         for key, value in datasets.items():
             flaw_fd, flaw_landmarks = value
@@ -125,8 +122,7 @@ if __name__ == "__main__":
             # Apply kPCA on holdout FICA scores
             holdout_kpca_n_components = kpca_tune_n_components(holdout_fica_scores)
             holdout_kpca_gamma = tune_gamma(holdout_fica_scores)
-            holdout_kpca = kpca_with_param(holdout_fica_scores, holdout_kpca_n_components, holdout_kpca_gamma)
-            holdout_kpca_embedding = holdout_kpca.transform(holdout_fica_scores)
+            holdout_kpca_embedding, holdout_kpca = kpca_with_param(holdout_fica_scores, holdout_kpca_n_components, holdout_kpca_gamma)
 
             # Apply holdout kPCA on real FICA scores
             real_kpca_embedding = holdout_kpca.transform(real_fica_scores)
