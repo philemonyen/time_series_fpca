@@ -35,8 +35,6 @@ if __name__ == "__main__":
     # Get Synthetic Data
     synthetic_all = load_synthetic_dataset(diagnostic, lead)
     trimmed_synthetic_fd, synthetic_landmarks_all = extract_ecg_clinical_landmarks(synthetic_all, n_beats, sr)
-    synthetic_fd = trimmed_synthetic_fd[:n_data]
-    synthetic_landmarks = synthetic_landmarks_all[:n_data]
 
     #### ------------ Individual FPCA ------------ ####
     # Apply FPCA on Real dataset
@@ -46,8 +44,8 @@ if __name__ == "__main__":
     real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(real_aligned_fd, n_components)
 
     # Apply FPCA on synthetic dataset
-    lambda_ = basis_smoothing_hyperparameter_tuning(synthetic_fd, n_basis, domain_range)
-    synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(synthetic_fd, lambda_, n_basis, domain_range)
+    lambda_ = basis_smoothing_hyperparameter_tuning(trimmed_synthetic_fd, n_basis, domain_range)
+    synthetic_fd_smooth, _, _, _ = basis_smoothing_with_lambda(trimmed_synthetic_fd, lambda_, n_basis, domain_range)
     synthetic_aligned_fd, _ = landmark_registration(synthetic_fd_smooth, synthetic_landmarks_all, landmark_locations)
 
     #### ------------ Shared FPCA ------------ ####
@@ -85,13 +83,27 @@ if __name__ == "__main__":
 
     ## Individual FICA to visualize IC differences
     # Apply FICA on Real dataset
-    real_fica_scores, real_fica_components, real_ica = compute_fica(real_scores, real_components)
-    # Apply FICA on synthetic dataset
-    synthetic_fica_scores, synthetic_fica_components, synthetic_ica = compute_fica(synthetic_scores_shared_fpca, real_components)
+    # real_fica_scores, real_fica_components, real_ica = compute_fica(real_scores, real_components)
+    # # Apply FICA on synthetic dataset
+    # synthetic_fica_scores, synthetic_fica_components, synthetic_ica = compute_fica(synthetic_scores_shared_fpca, real_components)
+
+    # Evaluation on raw aligned data
+    mmd_score = mmd(real_aligned_fd.data_matrix.squeeze(), synthetic_aligned_fd.data_matrix.squeeze())
+    wasserstein_score = wasserstein(real_aligned_fd.data_matrix.squeeze(), synthetic_aligned_fd.data_matrix.squeeze())
+
+    # Apply UMAP on raw aligned data
+    real_umap = tune_umap(real_aligned_fd.data_matrix.squeeze())
+    raw_real_umap_embedding = real_umap.transform(real_aligned_fd.data_matrix.squeeze())
+    raw_synthetic_umap_embedding = real_umap.transform(synthetic_aligned_fd.data_matrix.squeeze())
 
     #### ------------ Result Display ------------ ####
     f = open(save_path + "fpca_result.txt", "w")
 
+    # Raw Aligned Data: MMD, Wasserstein
+    f.write("Raw Aligned Data: MMD, Wasserstein\n")
+    f.write(f"    MMD: {mmd_score}\n")
+    f.write(f"    Wasserstein: {wasserstein_score}\n")
+    
     ## Shared FPCA
     # FPC Score MMD, Mahalanobis, FPC KS, PRDC, LMR
     f.write("Shared FPCA: MMD\n")
@@ -136,19 +148,27 @@ if __name__ == "__main__":
     plt.savefig(save_path + "UMAP_Embedding.png")
     plt.close()
 
+    ## Raw UMAP plotting
+    plt.scatter(raw_real_umap_embedding[:, 0], raw_real_umap_embedding[:, 1], label="Real")
+    plt.scatter(raw_synthetic_umap_embedding[:, 0], raw_synthetic_umap_embedding[:, 1], label="Synthetic")
+    plt.title("Raw UMAP Embedding")
+    plt.legend()
+    plt.savefig(save_path + "Raw_UMAP_Embedding.png")
+    plt.close()
+
     ## FICA IC plotting
-    for i in range(n_components):
-        plt.plot(real_fica_components[i].data_matrix.squeeze(), label="Real")
-        plt.xlabel("Time")
-        plt.ylabel("Variance")
-        plt.title(f"FICA Real Component {i}")
-        plt.legend()
-        plt.savefig(save_path + f"FICA_Real_Component_{i}.png")
-        plt.close()
-        plt.plot(synthetic_fica_components[i].data_matrix.squeeze(), label="Synthetic")
-        plt.xlabel("Time")
-        plt.ylabel("Variance")
-        plt.title(f"FICA Synthetic Component {i}")
-        plt.legend()
-        plt.savefig(save_path + f"FICA_Synthetic_Component_{i}.png")
-        plt.close()
+    # for i in range(n_components):
+    #     plt.plot(real_fica_components[i].data_matrix.squeeze(), label="Real")
+    #     plt.xlabel("Time")
+    #     plt.ylabel("Variance")
+    #     plt.title(f"FICA Real Component {i}")
+    #     plt.legend()
+    #     plt.savefig(save_path + f"FICA_Real_Component_{i}.png")
+    #     plt.close()
+    #     plt.plot(synthetic_fica_components[i].data_matrix.squeeze(), label="Synthetic")
+    #     plt.xlabel("Time")
+    #     plt.ylabel("Variance")
+    #     plt.title(f"FICA Synthetic Component {i}")
+    #     plt.legend()
+    #     plt.savefig(save_path + f"FICA_Synthetic_Component_{i}.png")
+    #     plt.close()

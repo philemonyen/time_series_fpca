@@ -4,6 +4,7 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from pathlib import Path
 from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
 from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
+from methods.evaluation.privacy import full_knowledge_mia
 from methods.validation.dataset_creation import *
 
 def dsintace_to_closest_record(real_aligned_fd, flaw_aligned_fd):
@@ -85,32 +86,52 @@ if __name__ == "__main__":
             flaw_fd_smooth, _, _, _ = basis_smoothing_with_lambda(flaw_fd, lambda_, n_basis, domain_range)
             flaw_aligned_fd, _ = landmark_registration(flaw_fd_smooth, flaw_landmarks, landmark_locations)
 
-            member_distances = dsintace_to_closest_record(real_aligned_fd.data_matrix.squeeze(), flaw_aligned_fd.data_matrix.squeeze())
-            non_member_distances = dsintace_to_closest_record(holdout_aligned_fd.data_matrix.squeeze(), flaw_aligned_fd.data_matrix.squeeze())
-
-            # ==========================================
-            # 4. Evaluate Attack Success (ROC-AUC)
-            # ==========================================
-            # Ground truth labels: 1 for Member, 0 for Non-Member
-            y_true = np.concatenate([np.ones_like(member_distances), np.zeros_like(non_member_distances)])
-
-            # By definition, smaller distance = higher chance of being a member.
-            # We negate the distances so that higher scores correlate with membership label 1.
-            y_scores = -np.concatenate([member_distances, non_member_distances])
-
-            fpr, tpr, thresholds = roc_curve(y_true, y_scores)
-            auc_score = roc_auc_score(y_true, y_scores)
+            fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_aligned_fd.data_matrix.squeeze(), flaw_aligned_fd.data_matrix.squeeze())
+            print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
 
             plt.figure(figsize=(7, 6))
-            plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'DTW-MIA (AUC = {auc_score:.3f})')
-            plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Chance (AUC = 0.50)')
+            plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
+            plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+            plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+            plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+            plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
             plt.xlim([-0.02, 1.02])
             plt.ylim([-0.02, 1.02])
-            plt.xlabel('False Positive Rate', fontsize=11)
-            plt.ylabel('True Positive Rate', fontsize=11)
-            plt.title(f'DTW-MIA ROC Curve ({scenario}, {key})', fontsize=13, weight='bold', pad=15)
+            plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+            plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+            plt.title(f'Baseline Privacy-Fidelity ROC Curve ({scenario}, {key})', fontsize=13, weight='bold', pad=15)
             plt.legend(loc="lower right", frameon=True, shadow=True)
             plt.grid(True, linestyle=':', alpha=0.6)
             plt.tight_layout()
-            plt.savefig(save_path + f'baseline_roc_curve_{scenario}_{key}.png', dpi=300)
+            plt.savefig(save_path + f'baseline_full_knowledge_mia_roc_curve_{scenario}_{key}.png', dpi=300)
             plt.close()
+
+            # member_distances = dsintace_to_closest_record(real_aligned_fd.data_matrix.squeeze(), flaw_aligned_fd.data_matrix.squeeze())
+            # non_member_distances = dsintace_to_closest_record(holdout_aligned_fd.data_matrix.squeeze(), flaw_aligned_fd.data_matrix.squeeze())
+
+            # # ==========================================
+            # # 4. Evaluate Attack Success (ROC-AUC)
+            # # ==========================================
+            # # Ground truth labels: 1 for Member, 0 for Non-Member
+            # y_true = np.concatenate([np.ones_like(member_distances), np.zeros_like(non_member_distances)])
+
+            # # By definition, smaller distance = higher chance of being a member.
+            # # We negate the distances so that higher scores correlate with membership label 1.
+            # y_scores = -np.concatenate([member_distances, non_member_distances])
+
+            # fpr, tpr, thresholds = roc_curve(y_true, y_scores)
+            # auc_score = roc_auc_score(y_true, y_scores)
+
+            # plt.figure(figsize=(7, 6))
+            # plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'DTW-MIA (AUC = {auc_score:.3f})')
+            # plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Chance (AUC = 0.50)')
+            # plt.xlim([-0.02, 1.02])
+            # plt.ylim([-0.02, 1.02])
+            # plt.xlabel('False Positive Rate', fontsize=11)
+            # plt.ylabel('True Positive Rate', fontsize=11)
+            # plt.title(f'DTW-MIA ROC Curve ({scenario}, {key})', fontsize=13, weight='bold', pad=15)
+            # plt.legend(loc="lower right", frameon=True, shadow=True)
+            # plt.grid(True, linestyle=':', alpha=0.6)
+            # plt.tight_layout()
+            # plt.savefig(save_path + f'baseline_roc_curve_{scenario}_{key}.png', dpi=300)
+            # plt.close()
