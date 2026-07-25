@@ -64,6 +64,8 @@ if __name__ == "__main__":
         elif scenario == "segment_leaking":
             datasets = segment_leaking_creation(real_fd, holdout_fd, real_landmarks, holdout_landmarks)
 
+        # FULL-knowledge MIA tracks
+        fprs, tprs, roc_aucs, scales = [], [], [], []
         for key, value in datasets.items():
             flaw_fd, flaw_landmarks = value
             #### ------------ Shared FPCA ------------ ####
@@ -219,23 +221,28 @@ if __name__ == "__main__":
             flaw_fpca_dmap = np.concatenate([flaw_scores, flaw_dmap_embedding], axis=1)
             fpr, tpr, thresholds, mia_auc_roc = full_knowledge_mia(real_fpca_dmap, flaw_fpca_dmap)
             print(f"The Full-Knowledge MIA AUC-ROC is: {mia_auc_roc:.4f}")
+            fprs.append(fpr)
+            tprs.append(tpr)
+            roc_aucs.append(mia_auc_roc)
+            scales.append(key)
 
-            plt.figure(figsize=(7, 6))
-            plt.plot(fpr, tpr, color='#1f77b4', lw=2.5, label=f'MIA (AUC = {mia_auc_roc:.3f})')
-            plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
-            plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
-            plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
-            plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
-            plt.xlim([-0.02, 1.02])
-            plt.ylim([-0.02, 1.02])
-            plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
-            plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
-            plt.title('FPCA + Diffusion Map Privacy-Fidelity ROC Curve', fontsize=13, weight='bold', pad=15)
-            plt.legend(loc="lower right", frameon=True, shadow=True)
-            plt.grid(True, linestyle=':', alpha=0.6)
-            plt.tight_layout()
-            plt.savefig(save_path + f'fpca_dmap_full_knowledge_mia_roc_curve_{scenario}_{key}.png', dpi=300)
-            plt.close()
+        plt.figure(figsize=(7, 6))
+        for fpr, tpr, roc_auc, scale in zip(fprs, tprs, roc_aucs, scales):
+            plt.plot(fpr, tpr, lw=2.5, label=f'Scale: {scale}, MIA (AUC = {roc_auc:.3f})')
+        plt.plot([0, 1], [0, 1], color='black', linestyle='--', lw=1.5, label='Perfect Equilibrium (AUC = 0.50)')
+        plt.text(0.60, 0.15, '⚠️ PRIVACY FAILURE\n(Real data memorized)', color='darkred', weight='bold', fontsize=9)
+        plt.text(0.05, 0.85, '⚠️ FIDELITY FAILURE\n(Synthetic data looks fake)', color='darkorange', weight='bold', fontsize=9)
+        plt.text(0.42, 0.48, '✨ SWEET SPOT', color='green', weight='bold', fontsize=9, rotation=37)
+        plt.xlim([-0.02, 1.02])
+        plt.ylim([-0.02, 1.02])
+        plt.xlabel('False Positive Rate (Real data classified as Synthetic)', fontsize=11)
+        plt.ylabel('True Positive Rate (Synthetic classified correctly)', fontsize=11)
+        plt.title(f'FPCA + Diffusion Map Privacy-Fidelity ROC Curve ({scenario})', fontsize=13, weight='bold', pad=15)
+        plt.legend(loc="lower right", frameon=True, shadow=True)
+        plt.grid(True, linestyle=':', alpha=0.6)
+        plt.tight_layout()
+        plt.savefig(save_path + f'FPCA_DMap_full_knowledge_mia_roc_curve_{scenario}.png', dpi=300)
+        plt.close()
 
             # # Full-Knowledge MIA: FPCA + UMAP
             # real_fpca_umap = np.concatenate([real_scores, real_umap_embedding], axis=1)
