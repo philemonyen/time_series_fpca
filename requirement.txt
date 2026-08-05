@@ -6,9 +6,12 @@ matplotlib
 pandas
 wfdb
 tensorflow
+torch
 tabulate
 kneed
 seaborn
 gudhi
 POT
 umap-learn
+fastdtw
+similaritymeasures

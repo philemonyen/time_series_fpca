@@ -2,11 +2,11 @@ import numpy as np
 import json
 from pathlib import Path
 import matplotlib.pyplot as plt
-from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
-from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.evaluation.fidelity import mmd, wasserstein, local_mixing_ratio
-from methods.transformation.nonlinear.umap import tune_umap
-from methods.validation.dataset_creation import *
+from preprocess.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
+from preprocess.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
+from metrics.fidelity import mmd, wasserstein, local_mixing_ratio
+from transformation.nonlinear.umap import tune_umap
+from validation.dataset_creation import *
 
 if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##

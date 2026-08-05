@@ -1,13 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from methods.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
-from methods.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from methods.transformation.fda.fica import compute_fica
-from methods.transformation.fda.fpca import fpca_with_param
-from methods.transformation.nonlinear.diffusion_map import DenseDiffusionMap
-from methods.transformation.nonlinear.umap import tune_umap
-from methods.evaluation.fidelity import *
+from preprocess.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks, load_synthetic_dataset
+from preprocess.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
+from transformation.fda.fica import compute_fica
+from transformation.fda.fpca import fpca_with_param
+from transformation.nonlinear.diffusion_map import DenseDiffusionMap
+from transformation.nonlinear.umap import tune_umap
+from metrics.fidelity import *
 
 if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##
