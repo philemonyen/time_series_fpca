@@ -8,7 +8,6 @@ from skfda.misc.regularization import L2Regularization
 from skfda.misc.operators import LinearDifferentialOperator
 from skfda.preprocessing.registration import FisherRaoElasticRegistration, landmark_elastic_registration, landmark_elastic_registration_warping
 
-
 def to_fd(data, time_start, time_end, x_axis, y_axis):
     """
     Transform numpy array (discrete) to FDataGrid (continuous)

@@ -3,10 +3,10 @@ import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 from preprocess.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
-from preprocess.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
+from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from metrics.fidelity import mmd, wasserstein, local_mixing_ratio
 from transformation.nonlinear.umap import tune_umap
-from validation.dataset_creation import *
+from scenario_engineering.dataset_creation import *
 
 if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##

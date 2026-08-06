@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, roc_curve
 from pathlib import Path
 from preprocess.utils import load_dataset, get_sr, extract_ecg_clinical_landmarks
-from preprocess.preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
+from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from metrics.privacy import full_knowledge_mia
-from validation.dataset_creation import *
+from scenario_engineering.dataset_creation import *
 
 def dsintace_to_closest_record(real_aligned_fd, flaw_aligned_fd):
     # For each flaw record, find its distance to the closest real record

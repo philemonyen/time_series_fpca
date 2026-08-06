@@ -3,7 +3,7 @@ import numpy as np
 from skfda import FDataGrid
 from scipy.ndimage import uniform_filter1d
 
-def oversmoothing(fd, landmarks, window_size = 5):
+def oversmoothing(fd, window_size = 5):
     """
     Simulates a generative model that fails to capture high-frequency variance 
     by over-smoothing the synthetic functional data.
@@ -18,17 +18,15 @@ def oversmoothing(fd, landmarks, window_size = 5):
     return FDataGrid(
         data_matrix=smoothed_data, 
         grid_points=fd.grid_points,
-    ), landmarks
+    )
 
-def full_memorization(fd_real, fd_substitute, landmarks_real, landmarks_substitute, fraction = 0.1):
+def full_memorization(fd_real, fd_substitute, fraction = 0.1):
     """
     Simulates catastrophic privacy failure by injecting exact real samples 
     into the synthetic dataset.
     """
     syn_data = fd_substitute.data_matrix.copy()
-    syn_landmarks = landmarks_substitute.copy()
     real_data = fd_real.data_matrix
-    real_landmarks = landmarks_real.copy()
     
     n_syn = syn_data.shape[0]
     n_real = real_data.shape[0]
@@ -40,13 +38,12 @@ def full_memorization(fd_real, fd_substitute, landmarks_real, landmarks_substitu
     
     # Overwrite the synthetic curves with the real curves
     syn_data[replace_idx] = real_data[real_idx]
-    syn_landmarks[replace_idx] = real_landmarks[real_idx]
     return FDataGrid(
         data_matrix=syn_data, 
         grid_points=fd_substitute.grid_points,
-    ), syn_landmarks
+    )
 
-def gaussian_noise(real_data_fd, landmarks, noise_multiplier=1.5):
+def gaussian_noise(real_data_fd, noise_multiplier=1.5):
     """
     Adds extreme Gaussian noise relative to the standard deviation of the data.
     """
@@ -56,9 +53,9 @@ def gaussian_noise(real_data_fd, landmarks, noise_multiplier=1.5):
     
     synthetic_ds = real_data + heavy_noise
 
-    return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points), landmarks
+    return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points)
 
-def mode_collapse(real_data_fd, real_landmarks, num_modes=5, target_size=500, spike_ratio=0.10):
+def mode_collapse(real_data_fd, num_modes=5, target_size=500, spike_ratio=0.10):
     """
     Creates a dataset exhibiting mode collapse by forcing regional density spikes 
     while maintaining a fixed total population size.
@@ -79,11 +76,9 @@ def mode_collapse(real_data_fd, real_landmarks, num_modes=5, target_size=500, sp
     # 1. Select the modes (templates for the spikes)
     mode_indices = np.random.choice(total_real_samples, size=num_modes, replace=False)
     templates = real_data[mode_indices]
-    templates_landmarks = real_landmarks[mode_indices]
     
     # 2. Duplicate them to create the regional spikes
     collapsed_data = np.repeat(templates, spike_size, axis=0)
-    collapsed_landmarks = np.repeat(templates_landmarks, spike_size, axis=0)
     
     # Add microscopic noise to the collapsed samples so they aren't perfectly identical
     micro_noise = np.random.normal(0, np.std(real_data) * 0.005, size=collapsed_data.shape)
@@ -94,30 +89,26 @@ def mode_collapse(real_data_fd, real_landmarks, num_modes=5, target_size=500, sp
     rest_indices = np.random.choice(available_indices, size=remaining_samples, replace=False)
     
     rest_data = real_data[rest_indices]
-    rest_landmarks = real_landmarks[rest_indices]
     
     # 4. Combine the collapsed data and the remaining diverse data
     synthetic_ds = np.vstack((collapsed_data, rest_data))
-    synthetic_landmarks = np.vstack((collapsed_landmarks, rest_landmarks))
     
     # 5. Shuffle the dataset to randomly distribute the spikes throughout the arrays
     shuffle_idx = np.random.permutation(target_size)
     synthetic_ds = synthetic_ds[shuffle_idx]
-    synthetic_landmarks = synthetic_landmarks[shuffle_idx]
     
-    return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points), synthetic_landmarks
+    return FDataGrid(data_matrix=synthetic_ds, grid_points=real_data_fd.grid_points)
 
-def segment_leaking(fd_real, fd_substitute, landmarks_real, landmarks_substitute, fraction = 0.1):
+def segment_leaking(fd_real, fd_substitute, fraction=0.1):
     """
     Simulates partial memorization by splicing segments of real data 
-    directly into the synthetic time-series.
+    directly into the synthetic time-series, while strictly avoiding 
+    the zero-padded isoelectric regions.
     """
     syn_data = fd_substitute.data_matrix.copy()
-    syn_landmarks = landmarks_substitute.copy()
     real_data = fd_real.data_matrix
-    real_landmarks = landmarks_real.copy()
     
-    n_syn, t_steps, _ = syn_data.shape
+    n_syn, t_steps, num_dim = syn_data.shape
     n_real = real_data.shape[0]
     
     num_leak = int(n_syn * fraction)
@@ -126,19 +117,40 @@ def segment_leaking(fd_real, fd_substitute, landmarks_real, landmarks_substitute
     real_idx_to_source = np.random.choice(n_real, num_leak, replace=False)
     
     for s_idx, r_idx in zip(syn_idx_to_modify, real_idx_to_source):
-        # Determine a random segment length between 25% and 50% of the total steps
-        min_len = max(1, t_steps // 4)
-        max_len = max(2, t_steps // 2)
-        seg_length = np.random.randint(min_len, max_len)
         
-        # Pick a random starting point that allows the full segment to fit
-        start_idx = np.random.randint(0, t_steps - seg_length + 1)
+        # 1. Isolate the active (non-padded) region for both signals
+        # Using 1e-6 to account for potential floating-point inaccuracies during generation
+        real_active = np.abs(real_data[r_idx, :, 0]) > 1e-6
+        syn_active = np.abs(syn_data[s_idx, :, 0]) > 1e-6
+        
+        # Find the last active index (where the padding begins)
+        real_last_idx = np.where(real_active)[0][-1] if np.any(real_active) else 0
+        syn_last_idx = np.where(syn_active)[0][-1] if np.any(syn_active) else 0
+        
+        # The valid region for splicing is the intersection of their active lengths
+        max_valid_idx = min(real_last_idx, syn_last_idx)
+        
+        # Safety check: if the active region is too small to meaningfully splice, skip
+        if max_valid_idx < 4:
+            continue
+            
+        # 2. Determine segment length based on the ACTIVE steps, not total t_steps
+        min_len = max(1, max_valid_idx // 4)
+        max_len = max(2, max_valid_idx // 2)
+        
+        if min_len >= max_len:
+            seg_length = min_len
+        else:
+            seg_length = np.random.randint(min_len, max_len)
+        
+        # 3. Pick a random starting point strictly within the active morphological region
+        start_idx = np.random.randint(0, max_valid_idx - seg_length + 1)
         end_idx = start_idx + seg_length
         
-        # Splice the real segment into the synthetic curve
+        # 4. Splice the real segment into the synthetic curve
         syn_data[s_idx, start_idx:end_idx, :] = real_data[r_idx, start_idx:end_idx, :]
-        syn_landmarks[s_idx, start_idx:end_idx] = real_landmarks[r_idx, start_idx:end_idx]
+        
     return FDataGrid(
         data_matrix=syn_data, 
         grid_points=fd_substitute.grid_points,
-    ), syn_landmarks
+    )
