@@ -12,7 +12,6 @@ from skfda.representation import FDataGrid
 
 #### ---- Global Parameters ---- ####
 path = "../../ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
-# path = '~/projects/def-chenh/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/'
 sampling_rate=100
 diagnostics = np.array(['NORM', 'MI', 'STTC', 'CD', 'HYP'])
 
@@ -189,6 +188,70 @@ def extract_ecg_phase_aligned(signals, sr, points_per_beat=100):
     fd = FDataGrid(data_matrix=resampled_data, grid_points=normalized_grid)
     
     return fd
+
+def extract_ecg_sliding_windows(signals, sr, window_beats=8, points_per_window=1000):
+    """
+    Extracts fixed-beat sliding windows from ECG signals and pools them globally.
+    Normalizes each extracted window to a domain of t in [0, 1] and calculates 
+    the relative landmark locations for subsequent temporal registration.
+    
+    Parameters:
+    - signals: list of 1D numpy arrays (raw ECG signals)
+    - sr: int, sampling rate
+    - window_beats: int, the fixed number of R-peaks (N) per sliding window
+    - points_per_window: int, the resolution of the shared spatial grid for FDataGrid
+    
+    Returns:
+    - fd: FDataGrid containing all pooled, time-normalized windows
+    - global_landmarks: ndarray of shape (total_windows, window_beats) containing 
+                        the relative locations of the R-peaks in [0, 1]
+    """
+    pooled_data = []
+    global_landmarks = []
+    
+    # Common domain for the FDataGrid
+    normalized_grid = np.linspace(0, 1, points_per_window)
+    
+    for signal in signals:
+        # 1. Feature Extraction (Only R-peaks are needed for temporal analysis)
+        df, _ = nk.ecg_process(signal, sampling_rate=sr)
+        r_peaks = np.where(df['ECG_R_Peaks'] == 1)[0]
+        
+        # Skip if the signal doesn't have enough beats to form even one window
+        if len(r_peaks) < window_beats:
+            continue
+            
+        # 2. Sliding Window Extraction
+        # Slide across the R-peaks array: e.g., for N=6, indices 0:6, 1:7, 2:8...
+        for i in range(len(r_peaks) - window_beats + 1):
+            window_r_peaks = r_peaks[i : i + window_beats]
+            
+            start_idx = window_r_peaks[0]
+            end_idx = window_r_peaks[-1]
+            
+            # Extract the raw signal spanning this specific N-beat epoch
+            trimmed_signal = signal[start_idx : end_idx + 1]
+            
+            # 3. Domain Normalization (t in [0, 1])
+            # Calculate the relative positions of the landmarks within this window
+            window_length = end_idx - start_idx
+            relative_landmarks = (window_r_peaks - start_idx) / window_length
+            
+            # Create the original time grid for this trimmed signal (0 to 1)
+            original_grid = np.linspace(0, 1, len(trimmed_signal))
+            
+            # Interpolate the raw signal onto the shared global grid size
+            resampled_signal = np.interp(normalized_grid, original_grid, trimmed_signal)
+            
+            pooled_data.append(resampled_signal)
+            global_landmarks.append(relative_landmarks)
+            
+    # 4. Global Pooling
+    # Convert pooled arrays into the skfda compatible formats
+    fd = FDataGrid(data_matrix=pooled_data, grid_points=normalized_grid)
+    global_landmarks = np.array(global_landmarks)
+    
+    return fd, global_landmarks
 
 if __name__ == "__main__":
     diagnostic = "NORM"

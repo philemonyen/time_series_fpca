@@ -1,7 +1,6 @@
-import numpy as np
 import umap
-from sklearn.manifold import trustworthiness
 import itertools
+from sklearn.manifold import trustworthiness
 
 def tune_umap(X):
     """

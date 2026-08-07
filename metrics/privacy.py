@@ -3,7 +3,7 @@ from sklearn.neighbors import KernelDensity
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, roc_curve
-from sklearn.metrics.pairwise import cdist
+from scipy.spatial.distance import cdist
 
 ### DCR Score & DCR-based MIA ###
 def dcr(reference, real, synthetic):

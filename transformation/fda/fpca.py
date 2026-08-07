@@ -1,12 +1,13 @@
+import numpy as np
 from skfda.representation import FDataGrid
 from skfda.preprocessing.dim_reduction import FPCA
 
-def fpca_hyperparameter_tuning(fd):
+def fpca_hyperparameter_tuning(fd, threshold=0.9):
     """
     Determine optimal number of components using the elbow method, then run FPCA with it
     Args:
         fd (FDataGrid): the original signal
-        var_threshold (float): the threshold for the cumulative variance ratio
+        threshold (float): the threshold for the cumulative variance ratio
     Returns:
         Optimal number of components
     """
@@ -20,14 +21,9 @@ def fpca_hyperparameter_tuning(fd):
     fpca_ = FPCA(n_components=max_components)
     fpca_.fit(fd)
     var_ratio = fpca_.explained_variance_ratio_
-
-    return var_ratio
-    
-    # # Find the optimal number of components considering elbow point and variance ratio sum
-    # kl = KneeLocator(range(1, len(var_ratio) + 1), np.cumsum(var_ratio), curve="concave", direction="increasing", interp_method="polynomial", S=1e-4, online=True)
-    # n_components = np.min([kl.knee, np.argmin(np.cumsum(var_ratio) >= 0.9) + 1])
-    
-    # return n_components
+    cumsum_var_ratio = np.cumsum(var_ratio)
+    n_components = np.argmin(cumsum_var_ratio >= threshold) + 1
+    return n_components
 
 def fpca_with_param(fd, n_components):
     """

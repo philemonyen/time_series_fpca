@@ -419,7 +419,7 @@ def get_diffusion_eigenvalues(data, k=10, sigma=None):
     
     return top_k_evals
 
-def compute_spectral_distance(real_data, synth_data, k=10):
+def spectral_distance(real_data, synth_data, k=10):
     """
     Computes the Spectral Distance between the diffusion operators of real and synthetic data.
     

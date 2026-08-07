@@ -2,6 +2,7 @@
 import numpy as np
 from skfda import FDataGrid
 from scipy.ndimage import uniform_filter1d
+from scipy.interpolate import interp1d
 
 def oversmoothing(fd, window_size = 5):
     """
@@ -154,3 +155,78 @@ def segment_leaking(fd_real, fd_substitute, fraction=0.1):
         data_matrix=syn_data, 
         grid_points=fd_substitute.grid_points,
     )
+
+def time_distortion(fd, landmarks, alpha=1.5):
+    """
+    Simulates global time distortion using a power-law warp.
+    """
+    grid = fd.grid_points[0]
+    n_samples = fd.data_matrix.shape[0]
+    
+    # 1. Create the non-linear warping function gamma(t)
+    gamma_t = grid ** alpha
+    
+    # 2. Warp the functional data by evaluating it at the warped time points
+    distorted_data = fd(gamma_t).squeeze()
+    
+    # Ensure correct shape if only one sample is passed
+    if n_samples == 1:
+        distorted_data = distorted_data[np.newaxis, :]
+        
+    # 3. Update the landmarks
+    # If the original peak was at L, the new peak occurs when gamma(t) = L
+    # t^alpha = L  =>  t = L^(1/alpha)
+    distorted_landmarks = landmarks ** (1.0 / alpha)
+    
+    fd_distorted = FDataGrid(data_matrix=distorted_data, grid_points=grid)
+    return fd_distorted, distorted_landmarks
+
+def phase_shift(fd, landmarks, shift_fraction=0.03):
+    """
+    Simulates a systematic phase shift of the internal beats (e.g., early/delayed beats)
+    without moving the fixed window boundaries at t=0 and t=1.
+    """
+    grid = fd.grid_points[0]
+    n_samples = fd.data_matrix.shape[0]
+    
+    distorted_data = np.zeros_like(fd.data_matrix).squeeze()
+    if n_samples == 1: distorted_data = distorted_data[np.newaxis, :]
+        
+    distorted_landmarks = np.copy(landmarks)
+    
+    for i in range(n_samples):
+        orig_marks = landmarks[i]
+        new_marks = np.copy(orig_marks)
+        
+        # 1. Shift internal landmarks 
+        for j in range(1, len(orig_marks) - 1):
+            shift = shift_fraction
+            
+            # Safety check: maintain monotonicity (do not let beats cross each other)
+            if new_marks[j] + shift >= orig_marks[j+1]:
+                shift = (orig_marks[j+1] - orig_marks[j]) * 0.1
+            elif new_marks[j] + shift <= orig_marks[j-1]:
+                shift = (orig_marks[j-1] - orig_marks[j]) * 0.1
+                
+            new_marks[j] += shift
+            
+        distorted_landmarks[i] = new_marks
+        
+        # 2. Create a piecewise linear warping function gamma(t)
+        # This maps the new timing coordinates back to the original timing coordinates
+        gamma_i = interp1d(
+            new_marks, 
+            orig_marks, 
+            kind='linear', 
+            fill_value="extrapolate"
+        )(grid)
+        
+        # Clip to ensure no floating point errors push gamma outside [0, 1]
+        gamma_i = np.clip(gamma_i, 0, 1)
+        
+        # 3. Interpolate the original signal at the new warped grid points
+        curve_interp = interp1d(grid, fd.data_matrix[i, :, 0].squeeze(), kind='linear')
+        distorted_data[i] = curve_interp(gamma_i)
+        
+    fd_distorted = FDataGrid(data_matrix=distorted_data, grid_points=grid)
+    return fd_distorted, distorted_landmarks
