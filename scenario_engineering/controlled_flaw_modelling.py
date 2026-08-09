@@ -159,6 +159,7 @@ def segment_leaking(fd_real, fd_substitute, fraction=0.1):
 def time_distortion(fd, landmarks, alpha=1.5):
     """
     Simulates global time distortion using a power-law warp.
+    Assumes `landmarks` are stripped of 0.0 and 1.0 boundaries.
     """
     grid = fd.grid_points[0]
     n_samples = fd.data_matrix.shape[0]
@@ -168,52 +169,50 @@ def time_distortion(fd, landmarks, alpha=1.5):
     
     # 2. Warp the functional data by evaluating it at the warped time points
     distorted_data = fd(gamma_t).squeeze()
-    
-    # Ensure correct shape if only one sample is passed
     if n_samples == 1:
         distorted_data = distorted_data[np.newaxis, :]
         
-    # 3. Update the landmarks
-    # If the original peak was at L, the new peak occurs when gamma(t) = L
-    # t^alpha = L  =>  t = L^(1/alpha)
+    # 3. Update the internal landmarks mathematically
     distorted_landmarks = landmarks ** (1.0 / alpha)
     
     fd_distorted = FDataGrid(data_matrix=distorted_data, grid_points=grid)
+    
+    # Return directly; since inputs were stripped, outputs remain stripped
     return fd_distorted, distorted_landmarks
+
 
 def phase_shift(fd, landmarks, shift_fraction=0.03):
     """
-    Simulates a systematic phase shift of the internal beats (e.g., early/delayed beats)
-    without moving the fixed window boundaries at t=0 and t=1.
+    Simulates a systematic phase shift of the internal beats.
+    Dynamically handles boundaries for interpolation and returns stripped landmarks.
     """
     grid = fd.grid_points[0]
     n_samples = fd.data_matrix.shape[0]
     
     distorted_data = np.zeros_like(fd.data_matrix).squeeze()
-    if n_samples == 1: distorted_data = distorted_data[np.newaxis, :]
+    if n_samples == 1: 
+        distorted_data = distorted_data[np.newaxis, :]
         
     distorted_landmarks = np.copy(landmarks)
     
     for i in range(n_samples):
-        orig_marks = landmarks[i]
+        # 1. Temporarily append boundaries for mathematical anchoring
+        orig_marks = np.concatenate(([0.0], landmarks[i], [1.0]))
         new_marks = np.copy(orig_marks)
         
-        # 1. Shift internal landmarks 
+        # 2. Shift ALL internal landmarks (indices 1 through len-2)
         for j in range(1, len(orig_marks) - 1):
             shift = shift_fraction
             
-            # Safety check: maintain monotonicity (do not let beats cross each other)
+            # BUG FIX: Check against the ALREADY UPDATED new_marks[j-1]
             if new_marks[j] + shift >= orig_marks[j+1]:
                 shift = (orig_marks[j+1] - orig_marks[j]) * 0.1
-            elif new_marks[j] + shift <= orig_marks[j-1]:
-                shift = (orig_marks[j-1] - orig_marks[j]) * 0.1
+            elif new_marks[j] + shift <= new_marks[j-1]:  # <- The critical fix
+                shift = (orig_marks[j] - new_marks[j-1]) * 0.1
                 
             new_marks[j] += shift
             
-        distorted_landmarks[i] = new_marks
-        
-        # 2. Create a piecewise linear warping function gamma(t)
-        # This maps the new timing coordinates back to the original timing coordinates
+        # 3. Create a piecewise linear warping function gamma(t)
         gamma_i = interp1d(
             new_marks, 
             orig_marks, 
@@ -221,12 +220,14 @@ def phase_shift(fd, landmarks, shift_fraction=0.03):
             fill_value="extrapolate"
         )(grid)
         
-        # Clip to ensure no floating point errors push gamma outside [0, 1]
         gamma_i = np.clip(gamma_i, 0, 1)
         
-        # 3. Interpolate the original signal at the new warped grid points
+        # 4. Interpolate the original signal at the new warped grid points
         curve_interp = interp1d(grid, fd.data_matrix[i, :, 0].squeeze(), kind='linear')
         distorted_data[i] = curve_interp(gamma_i)
+        
+        # 5. Strip the 0.0 and 1.0 boundaries back off before returning
+        distorted_landmarks[i] = new_marks[1:-1]
         
     fd_distorted = FDataGrid(data_matrix=distorted_data, grid_points=grid)
     return fd_distorted, distorted_landmarks

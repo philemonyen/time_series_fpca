@@ -1,15 +1,12 @@
 import numpy as np
-from typing import Union, Dict
 from scipy.linalg import sqrtm
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics.pairwise import rbf_kernel
 from scipy.spatial.distance import pdist, squareform, jensenshannon
 from scipy.linalg import eigh
 from statsmodels.tsa.stattools import acf
-from pydiffmap import diffusion_map as dm
 from fastdtw import fastdtw
-from scipy.spatial.distance import euclidean
-import similaritymeasures
+from scipy.spatial.distance import euclidean, cdist
 
 
 import torch
@@ -187,7 +184,8 @@ def dtw_score(real_data, synthetic_data, num_samples=100):
 
 def frechet_score(real_data, synthetic_data, num_samples=100):
     """
-    Computes the Expected Fréchet Distance between real and synthetic time series.
+    Computes the Expected Fréchet Distance between real and synthetic time series
+    using a dynamic programming approach for the discrete Fréchet distance.
     
     Parameters:
     - real_data: np.ndarray of shape (N, T, F)
@@ -207,12 +205,39 @@ def frechet_score(real_data, synthetic_data, num_samples=100):
     total_frechet = 0.0
     
     for r_idx, s_idx in zip(idx_real, idx_synth):
-        # Extract the sequence: shape (T, F)
+        # Extract the sequences: shape (T, F)
         seq_real = real_data[r_idx]
         seq_synth = synthetic_data[s_idx]
         
-        # similaritymeasures.frechet_dist handles 2D arrays natively
-        distance = similaritymeasures.frechet_dist(seq_real, seq_synth)
+        # 1. Compute pairwise Euclidean distance matrix between all time steps
+        # dist_matrix shape: (T_real, T_synth)
+        dist_matrix = cdist(seq_real, seq_synth, metric='euclidean')
+        
+        T_r, T_s = dist_matrix.shape
+        ca = np.zeros((T_r, T_s))
+        
+        # 2. Dynamic Programming Initialization
+        ca[0, 0] = dist_matrix[0, 0]
+        
+        for i in range(1, T_r):
+            ca[i, 0] = max(ca[i-1, 0], dist_matrix[i, 0])
+            
+        for j in range(1, T_s):
+            ca[0, j] = max(ca[0, j-1], dist_matrix[0, j])
+            
+        # 3. Dynamic Programming Traversal
+        for i in range(1, T_r):
+            for j in range(1, T_s):
+                # The cost is the max of the current spatial distance and the min of the previous path costs
+                min_prev_cost = min(
+                    ca[i-1, j],    # moving along seq_real
+                    ca[i, j-1],    # moving along seq_synth
+                    ca[i-1, j-1]   # moving along both
+                )
+                ca[i, j] = max(dist_matrix[i, j], min_prev_cost)
+                
+        # The Fréchet distance for this pair is the value at the bottom-right of the cost matrix
+        distance = ca[-1, -1]
         total_frechet += distance
         
     avg_frechet = total_frechet / num_samples

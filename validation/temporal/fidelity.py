@@ -5,7 +5,6 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from preprocess.ptbxl_preprocess import load_dataset, get_sr, extract_ecg_sliding_windows
 from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from transformation.fda.fpca import fpca_hyperparameter_tuning, fpca_with_param
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
@@ -16,17 +15,14 @@ if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##
     diagnostic = "NORM"
     lead = 1
-    sr = get_sr()
+    sr = 100
     n_components = 10
     domain_range = (0, 1)
     np.random.seed(42)
 
     # Get real warping functions and apply FPCA
-    real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    segments, landmarks = extract_ecg_sliding_windows(real_all, sr)
-    n_data = segments.data_matrix.shape[0]
-    real_segments = segments[:n_data//2]
-    real_landmarks = landmarks[:n_data//2]
+    with open(f"data/validation/real_segments.pkl", "rb") as f:
+        real_segments, real_landmarks = pickle.load(f)
     aligned_real_segments, real_warping_ = landmark_registration(real_segments, real_landmarks)
     n_basis = int(real_warping_.data_matrix.shape[1] / 2)
     lambda_ = basis_smoothing_hyperparameter_tuning(real_warping_, n_basis, domain_range)

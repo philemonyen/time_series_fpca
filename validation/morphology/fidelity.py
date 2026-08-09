@@ -5,7 +5,6 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from preprocess.ptbxl_preprocess import load_dataset, get_sr, extract_ecg_phase_aligned
 from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
 from transformation.fda.fpca import fpca_with_param
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
@@ -16,20 +15,17 @@ if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##
     diagnostic = "NORM"
     lead = 1
-    sr = get_sr()
+    sr = 100
     n_components = 10
     domain_range = (0, 1)
 
     np.random.seed(42)
 
     # Get Real Data
-    real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    aligned_real_fd = extract_ecg_phase_aligned(real_all, sr)
-    n_sample, n_timepoints, n_channel = aligned_real_fd.data_matrix.shape
+    with open(f"data/validation/real_fd.pkl", "rb") as f:
+        real_fd = pickle.load(f)
+    n_sample, n_timepoints, n_channel = real_fd.data_matrix.shape
     n_basis = int(n_timepoints / 2)
-
-    real_fd = aligned_real_fd[:n_sample//2]
-    substitute_fd = aligned_real_fd[n_sample//2:]
 
     lambda_ = basis_smoothing_hyperparameter_tuning(real_fd, n_basis, domain_range)
     real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)

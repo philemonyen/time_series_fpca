@@ -3,11 +3,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.preprocessing import StandardScaler
-from preprocess.ptbxl_preprocess import load_dataset, get_sr, extract_ecg_sliding_windows
 from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from transformation.fda.fpca import fpca_hyperparameter_tuning, fpca_with_param
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from metrics.privacy import *
+
+def distribution_plotting(data, name, save_path):
+    plt.figure(figsize=(7, 6))
+    plt.hist(data, bins=50, label=name)
+    plt.xlabel('Score', fontsize=11)
+    plt.ylabel('Frequency', fontsize=11)
+    plt.title(f'{name}', fontsize=13, weight='bold', pad=15)
+    plt.legend(loc="upper right", frameon=True, shadow=True)
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(save_path + f'{name}.png', dpi=300)
+    plt.close()
 
 def plot_roc_curve(fprs, tprs, roc_aucs, scales, name, save_path):
     plt.figure(figsize=(7, 6))
@@ -32,19 +43,16 @@ if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##
     diagnostic = "NORM"
     lead = 1
-    sr = get_sr()
+    sr = 100
     n_components = 10
     domain_range = (0, 1)
     np.random.seed(42)
 
     # Get real warping functions and apply FPCA
-    real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    segments, landmarks = extract_ecg_sliding_windows(real_all, sr)
-    n_data = segments.data_matrix.shape[0]
-    real_segments = segments[:n_data//2]
-    real_landmarks = landmarks[:n_data//2]
-    holdout_segments = segments[n_data//2:]
-    holdout_landmarks = landmarks[n_data//2:]
+    with open(f"data/validation/real_segments.pkl", "rb") as f:
+        real_segments, real_landmarks = pickle.load(f)
+    with open(f"data/validation/substitute_segments.pkl", "rb") as f:
+        holdout_segments, holdout_landmarks = pickle.load(f)
 
     aligned_holdout, holdout_warping_ = landmark_registration(holdout_segments, holdout_landmarks)
     n_basis = int(holdout_warping_.data_matrix.shape[1] / 2)
@@ -69,7 +77,7 @@ if __name__ == "__main__":
     datasets = {}
     result_tracking = {}
     for scenario in scenarios:
-        save_path = f"images/fidelity_val/temporal/{scenario}/"
+        save_path = f"images/privacy_val/temporal/{scenario}/"
         path=Path(save_path)
         path.mkdir(parents=True, exist_ok=True)
         
@@ -78,7 +86,8 @@ if __name__ == "__main__":
         
         # Result Tracking
         scales = []
-        baseline_fprs, baseline_tprs, baseline_roc_aucs = [], [], []
+        baseline_dcr_fprs, baseline_dcr_tprs, baseline_dcr_roc_aucs = [], [], []
+        baseline_nndr_fprs, baseline_nndr_tprs, baseline_nndr_roc_aucs = [], [], []
         fpc_domias_fprs, fpc_domias_tprs, fpc_domias_roc_aucs = [], [], []
         dmap_domias_fprs, dmap_domias_tprs, dmap_domias_roc_aucs = [], [], []
         fpc_classifier_fprs, fpc_classifier_tprs, fpc_classifier_roc_aucs = [], [], []
@@ -87,8 +96,8 @@ if __name__ == "__main__":
 
 
         for key, value in datasets.items():
+            scales.append(key)
             flaw_fd, landmarks = value
-
             #### ------------ Transformations ------------ ####
             # FPCA
             aligned_flaw, flaw_warping_ = landmark_registration(flaw_fd, landmarks)
@@ -101,12 +110,19 @@ if __name__ == "__main__":
             flaw_dmap_embedding = holdout_dmap.transform(flaw_scores)
 
             #### ------------ Evaluation ------------ ####
-            # Raw Time-seriesDCR baseline
-            dcr_baseline = dcr(holdout_warping_.data_matrix.squeeze(), real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            # Raw Time-series DCR baseline
+            dcr_baseline = dcr(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
             fpr, tpr, thresholds, mia_auc_roc = dcr_mia(holdout_warping_.data_matrix.squeeze(), real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
-            baseline_fprs.append(fpr)
-            baseline_tprs.append(tpr)
-            baseline_roc_aucs.append(mia_auc_roc)
+            baseline_dcr_fprs.append(fpr)
+            baseline_dcr_tprs.append(tpr)
+            baseline_dcr_roc_aucs.append(mia_auc_roc)
+
+            # Raw Time-series NNDR baseline
+            nndr_baseline = nndr_scores(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            fpr, tpr, thresholds, mia_auc_roc = nndr_mia(holdout_warping_.data_matrix.squeeze(), real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            baseline_nndr_fprs.append(fpr)
+            baseline_nndr_tprs.append(tpr)
+            baseline_nndr_roc_aucs.append(mia_auc_roc)
 
             # DOMIAS MIA on FPCA scores
             fpc_density_ratio = domias(holdout_scores, real_scores, flaw_scores)
@@ -145,7 +161,17 @@ if __name__ == "__main__":
             fpc_dmap_classifier_tprs.append(tpr)
             fpc_dmap_classifier_roc_aucs.append(mia_auc_roc)
 
-        plot_roc_curve(baseline_fprs, baseline_tprs, baseline_roc_aucs, scales, f'DCR Baseline ({scenario})', save_path)
+            # Distribution plotting
+            distribution_plotting(dcr_baseline, f'DCR Baseline ({scenario}, {key})', save_path)
+            distribution_plotting(nndr_baseline, f'NNDR Baseline ({scenario}, {key})', save_path)
+            distribution_plotting(fpc_density_ratio, f'FPC DOMIAS MIA ({scenario}, {key})', save_path)
+            distribution_plotting(fpc_classifier_roc_aucs, f'FPC Classifier MIA ({scenario}, {key})', save_path)
+            distribution_plotting(dmap_density_ratio, f'DMap DOMIAS MIA ({scenario}, {key})', save_path)
+            distribution_plotting(dmap_classifier_roc_aucs, f'DMap Classifier MIA ({scenario}, {key})', save_path)
+            distribution_plotting(fpc_dmap_classifier_roc_aucs, f'FPC + DMap Classifier MIA ({scenario}, {key})', save_path)
+
+        plot_roc_curve(baseline_dcr_fprs, baseline_dcr_tprs, baseline_dcr_roc_aucs, scales, f'DCR Baseline ({scenario})', save_path)
+        plot_roc_curve(baseline_nndr_fprs, baseline_nndr_tprs, baseline_nndr_roc_aucs, scales, f'NNDR Baseline ({scenario})', save_path)
         plot_roc_curve(fpc_domias_fprs, fpc_domias_tprs, fpc_domias_roc_aucs, scales, f'FPC DOMIAS MIA ({scenario})', save_path)
         plot_roc_curve(fpc_classifier_fprs, fpc_classifier_tprs, fpc_classifier_roc_aucs, scales, f'FPC Classifier MIA ({scenario})', save_path)
         plot_roc_curve(dmap_domias_fprs, dmap_domias_tprs, dmap_domias_roc_aucs, scales, f'DMap DOMIAS MIA ({scenario})', save_path)

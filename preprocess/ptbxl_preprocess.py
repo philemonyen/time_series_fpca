@@ -3,8 +3,6 @@ import wfdb
 import pandas as pd
 import numpy as np
 import neurokit2 as nk
-import matplotlib.pyplot as plt
-from pathlib import Path
 from skfda.representation import FDataGrid
 
 #### ---- Dataset Source ----  ####
@@ -216,10 +214,9 @@ def extract_ecg_sliding_windows(signals, sr, window_beats=8, points_per_window=1
         # 1. Feature Extraction (Only R-peaks are needed for temporal analysis)
         df, _ = nk.ecg_process(signal, sampling_rate=sr)
         r_peaks = np.where(df['ECG_R_Peaks'] == 1)[0]
-        
-        # Skip if the signal doesn't have enough beats to form even one window
-        if len(r_peaks) < window_beats:
-            continue
+        r_peaks.sort()
+        if 0 in np.diff(r_peaks): continue
+        if len(r_peaks) < window_beats: continue
             
         # 2. Sliding Window Extraction
         # Slide across the R-peaks array: e.g., for N=6, indices 0:6, 1:7, 2:8...
@@ -244,7 +241,7 @@ def extract_ecg_sliding_windows(signals, sr, window_beats=8, points_per_window=1
             resampled_signal = np.interp(normalized_grid, original_grid, trimmed_signal)
             
             pooled_data.append(resampled_signal)
-            global_landmarks.append(relative_landmarks)
+            global_landmarks.append(relative_landmarks[1:-1]) # keep only the internal landmarks
             
     # 4. Global Pooling
     # Convert pooled arrays into the skfda compatible formats

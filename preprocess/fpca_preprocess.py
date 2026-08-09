@@ -1,6 +1,5 @@
 import skfda
 import numpy as np
-from kneed import KneeLocator
 from skfda.representation import FDataGrid
 from skfda.representation.basis import BSplineBasis
 from skfda.preprocessing.smoothing import BasisSmoother

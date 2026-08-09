@@ -3,6 +3,24 @@ from pathlib import Path
 from scenario_engineering.controlled_flaw_modelling import *
 from preprocess.ptbxl_preprocess import get_sr, load_dataset, extract_ecg_phase_aligned, extract_ecg_sliding_windows
 
+def get_flaw_scales(scenario):
+    if scenario == "oversmoothing":
+        return [5, 10, 15, 20, 25]
+    elif scenario == "memorization":
+        return [0.1, 0.2, 0.3, 0.4, 0.5]
+    elif scenario == "gaussian_noise":
+        return [1.5, 2.0, 2.5, 3.0, 3.5]
+    elif scenario == "mode_collapse":
+        return [1, 2, 3, 4, 5]
+    elif scenario == "mode_collapse_vary_spike_ratio":
+        return [0.1, 0.2, 0.3, 0.4, 0.5]
+    elif scenario == "segment_leaking":
+        return [0.1, 0.2, 0.3, 0.4, 0.5]
+    elif scenario == "phase_shift":
+        return [0.1, 0.2, 0.3, 0.4, 0.5]
+    elif scenario == "time_distortion":
+        return [0.5, 1.0, 1.5, 2.0, 2.5]
+
 def oversmoothing_creation(fd):
     dataset = {}
     window_size = [5, 10, 15, 20, 25]
@@ -69,38 +87,46 @@ if __name__ == "__main__":
     n_beats = 10
     sr = get_sr()
     
+    ### Morphological Flawed Dataset Creation ###
     real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    # aligned_real_fd = extract_ecg_phase_aligned(real_all, sr)
-    # n_sample, n_timepoints, n_channel = aligned_real_fd.data_matrix.shape
-    # real_fd = aligned_real_fd[:n_sample//2]
-    # substitute_fd = aligned_real_fd[n_sample//2:]
+    aligned_real_fd = extract_ecg_phase_aligned(real_all, sr)
+    n_sample, n_timepoints, n_channel = aligned_real_fd.data_matrix.shape
+    real_fd = aligned_real_fd[:n_sample//2]
+    substitute_fd = aligned_real_fd[n_sample//2:]
+    with open(path / "real_fd.pkl", "wb") as f:
+        pickle.dump(real_fd, f)
+    with open(path / "substitute_fd.pkl", "wb") as f:
+        pickle.dump(substitute_fd, f)
+    oversmoothing_dataset = oversmoothing_creation(real_fd)
+    with open(path / "oversmoothing_dataset.pkl", "wb") as f:
+        pickle.dump(oversmoothing_dataset, f)
+    memorization_dataset = memorization_creation(real_fd, substitute_fd)
+    with open(path / "memorization_dataset.pkl", "wb") as f:
+        pickle.dump(memorization_dataset, f)
+    gaussian_noise_dataset = gaussian_noise_creation(real_fd)
+    with open(path / "gaussian_noise_dataset.pkl", "wb") as f:
+        pickle.dump(gaussian_noise_dataset, f)
+    mode_collapse_vary_modes_dataset = mode_collapse_vary_modes_creation(real_fd)
+    with open(path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
+        pickle.dump(mode_collapse_vary_modes_dataset, f)
+    mode_collapse_vary_spike_ratio_dataset = mode_collapse_vary_spike_ratio_creation(real_fd)
+    with open(path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
+        pickle.dump(mode_collapse_vary_spike_ratio_dataset, f)
+    segment_leaking_dataset = segment_leaking_creation(real_fd, substitute_fd)
+    with open(path / "segment_leaking_dataset.pkl", "wb") as f:
+        pickle.dump(segment_leaking_dataset, f)
 
-    # oversmoothing_dataset = oversmoothing_creation(real_fd)
-    # with open(path / "oversmoothing_dataset.pkl", "wb") as f:
-    #     pickle.dump(oversmoothing_dataset, f)
-    # memorization_dataset = memorization_creation(real_fd, substitute_fd)
-    # with open(path / "memorization_dataset.pkl", "wb") as f:
-    #     pickle.dump(memorization_dataset, f)
-    # gaussian_noise_dataset = gaussian_noise_creation(real_fd)
-    # with open(path / "gaussian_noise_dataset.pkl", "wb") as f:
-    #     pickle.dump(gaussian_noise_dataset, f)
-    # mode_collapse_vary_modes_dataset = mode_collapse_vary_modes_creation(real_fd)
-    # with open(path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
-    #     pickle.dump(mode_collapse_vary_modes_dataset, f)
-    # mode_collapse_vary_spike_ratio_dataset = mode_collapse_vary_spike_ratio_creation(real_fd)
-    # with open(path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
-    #     pickle.dump(mode_collapse_vary_spike_ratio_dataset, f)
-    # segment_leaking_dataset = segment_leaking_creation(real_fd, substitute_fd)
-    # with open(path / "segment_leaking_dataset.pkl", "wb") as f:
-    #     pickle.dump(segment_leaking_dataset, f)
-
+    ### Temporal Flawed Dataset Creation ###
     segments, landmarks = extract_ecg_sliding_windows(real_all, sr)
     n_data = segments.data_matrix.shape[0]
     real_segments = segments[:n_data//2]
     real_landmarks = landmarks[:n_data//2]
     substitute_segments = segments[n_data//2:]
     substitute_landmarks = landmarks[n_data//2:]
-
+    with open(path / "real_segments.pkl", "wb") as f:
+        pickle.dump((real_segments, real_landmarks), f)
+    with open(path / "substitute_segments.pkl", "wb") as f:
+        pickle.dump((substitute_segments, substitute_landmarks), f)
     phase_shift_dataset = phase_shift_creation(real_segments, real_landmarks)
     with open(path / "phase_shift_dataset.pkl", "wb") as f:
         pickle.dump(phase_shift_dataset, f)

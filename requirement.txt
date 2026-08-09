@@ -4,14 +4,10 @@ scikit-learn
 matplotlib
 pandas
 wfdb
-tensorflow
 torch
 tabulate
-kneed
-seaborn
-gudhi
-POT
 umap-learn
 fastdtw
-similaritymeasures
 statsmodels
+neurokit2
+skfda

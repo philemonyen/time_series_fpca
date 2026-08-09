@@ -6,38 +6,51 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from scipy.spatial.distance import cdist
 
 ### DCR Score & DCR-based MIA ###
-def dcr(reference, real, synthetic):
+def dcr(real, synthetic):
     dists_train = cdist(real, synthetic, metric='euclidean')
     dcr_train = np.min(dists_train, axis=1)
-    dists_holdout = cdist(reference, synthetic, metric='euclidean')
-    dcr_holdout = np.min(dists_holdout, axis=1)
-    return dcr_train - dcr_holdout
+    return dcr_train
 
 def dcr_mia(reference, real, synthetic):
     """
     Performs DCR-based Membership Inference Attack.
     """
-    # 1. Compute DCR for Members (Train)
-    # cdist computes pairwise distances; min(axis=1) finds the closest synthetic point
-    dists_train = cdist(real, synthetic, metric='euclidean')
-    dcr_train = np.min(dists_train, axis=1)
+    dcr_train = dcr(real, synthetic)
+    dcr_holdout = dcr(reference, synthetic)
     
-    # 2. Compute DCR for Non-Members (Holdout)
-    dists_holdout = cdist(reference, synthetic, metric='euclidean')
-    dcr_holdout = np.min(dists_holdout, axis=1)
-    
-    # 3. Combine scores and labels
     scores = np.concatenate([dcr_train, dcr_holdout])
     labels = np.concatenate([np.ones(len(dcr_train)), np.zeros(len(dcr_holdout))])
     
-    # 4. Invert scores for ROC AUC
-    # Since smaller DCR means HIGHER likelihood of membership, we negate the distances
-    # so that higher values = predicted member.
-    inverted_scores = -scores
+    fpr, tpr, thresholds = roc_curve(labels, scores)
+    mia_auc_roc = roc_auc_score(labels, scores)
+    return fpr, tpr, thresholds, mia_auc_roc
+
+## NNDR Score & NNDR-based MIA ###
+def nndr_scores(real, synthetic, epsilon=1e-8):
+    """
+    Calculates NNDR (d1 / d2) for a target dataset against the synthetic dataset.
+    Use np.partition for O(N) extraction of the two smallest distances instead of O(N log N) sorting.
+    """
+    dists = cdist(real, synthetic, metric='euclidean')
+    dists_partitioned = np.partition(dists, 1, axis=1)
+    d1 = dists_partitioned[:, 0]
+    d2 = dists_partitioned[:, 1]
     
-    # 5. Evaluate
-    fpr, tpr, thresholds = roc_curve(labels, inverted_scores)
-    mia_auc_roc = roc_auc_score(labels, inverted_scores)
+    nndr = d1 / (d2 + epsilon)
+    return nndr
+
+def nndr_mia(reference, real, synthetic):
+    """
+    Performs NNDR-based Membership Inference Attack.
+    """
+    nndr_train = nndr_scores(real, synthetic)
+    nndr_holdout = nndr_scores(reference, synthetic)
+
+    scores = np.concatenate([nndr_train, nndr_holdout])
+    labels = np.concatenate([np.ones(len(nndr_train)), np.zeros(len(nndr_holdout))])
+    
+    fpr, tpr, thresholds = roc_curve(labels, scores)
+    mia_auc_roc = roc_auc_score(labels, scores)
     return fpr, tpr, thresholds, mia_auc_roc
 
 ### DOMIAS Ratio & Ratio Score-based MIA ###
