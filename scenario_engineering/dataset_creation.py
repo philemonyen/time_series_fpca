@@ -1,80 +1,97 @@
 import pickle
 from pathlib import Path
 from scenario_engineering.controlled_flaw_modelling import *
-from preprocess.ptbxl_preprocess import get_sr, load_dataset, extract_ecg_phase_aligned, extract_ecg_sliding_windows
+from preprocess.ptbxl_preprocess import get_sr, load_dataset, get_landmarks, extract_ecg_sliding_windows
 
 def get_flaw_scales(scenario):
+    """
+    ECG-calibrated severity ladders for raw PTB-XL strips of shape [N, 1000].
+
+    1000 samples = 10 s x 100 Hz, so 1 sample = 10 ms. At ~75 bpm: RR ~800 ms
+    (80 samples), QRS ~80-120 ms (8-12 samples), ~12 beats per strip.
+    """
     if scenario == "oversmoothing":
-        return [5, 10, 15, 20, 25]
+        # Moving-average width in samples (x10 ms). 4 = 40 ms (notch/slur);
+        # 8 = 80 ms (narrow QRS); 12 = 120 ms (wide QRS); 16 = 160 ms (ST/T);
+        # 20 = 200 ms (T-wave).
+        return [4, 8, 12, 16, 20]
     elif scenario == "memorization":
-        return [0.1, 0.2, 0.3, 0.4, 0.5]
+        # Fraction of synthetic records replaced by exact real traces.
+        # ECG morphology is identifying; a few clones already leak identity.
+        return [0.02, 0.05, 0.10, 0.15, 0.25]
     elif scenario == "gaussian_noise":
-        return [1.5, 2.0, 2.5, 3.0, 3.5]
-    elif scenario == "mode_collapse":
+        # Noise sigma as a multiple of the ECG std.
+        # 0.05 ~ subtle EMG; 0.25 diagnostic quality drops; 1.0 QRS still visible.
+        return [0.05, 0.10, 0.25, 0.50, 1.00]
+    elif scenario in ("mode_collapse", "mode_collapse_vary_modes"):
+        # Number of stereotyped 10 s templates the generator collapses onto.
         return [1, 2, 3, 4, 5]
     elif scenario == "mode_collapse_vary_spike_ratio":
-        return [0.1, 0.2, 0.3, 0.4, 0.5]
+        # Fraction of the synthetic set copied from a single template.
+        return [0.05, 0.10, 0.15, 0.20, 0.30]
     elif scenario == "segment_leaking":
-        return [0.1, 0.2, 0.3, 0.4, 0.5]
+        # Fraction of synthetic records that receive a one-beat real splice
+        # (~80 samples = 800 ms at 100 Hz).
+        return [0.05, 0.10, 0.15, 0.20, 0.30]
     elif scenario == "phase_shift":
-        return [0.1, 0.2, 0.3, 0.4, 0.5]
+        # Delay of internal R-peaks as a fraction of local RR.
+        # 0.05 ~ 40 ms; 0.15 ~ 120 ms (QRS-scale); 0.30 ~ 240 ms (marked).
+        return [0.05, 0.10, 0.15, 0.20, 0.30]
     elif scenario == "time_distortion":
-        return [0.5, 1.0, 1.5, 2.0, 2.5]
+        # Power-law warp gamma(t)=t^alpha on a 10 s strip. Displacement at
+        # mid-record is ~110 ms (0.97/1.03) to ~200 ms (0.94/1.06); 1.00 is identity.
+        return [0.94, 0.97, 1.00, 1.03, 1.06]
+    else:
+        raise ValueError(f"Unknown flaw scenario: {scenario}")
 
-def oversmoothing_creation(fd):
+def oversmoothing_creation(data, landmarks):
     dataset = {}
-    window_size = [5, 10, 15, 20, 25]
-    for window in window_size:
-        dataset[window] = oversmoothing(fd, window)
+    for window in get_flaw_scales("oversmoothing"):
+        dataset[window] = oversmoothing(data, landmarks, window)
     return dataset
 
-def memorization_creation(fd_real, fd_substitute):
+def memorization_creation(real_data, substitute_data, real_landmarks, substitute_landmarks):
     dataset = {}
-    fraction = [0.1, 0.2, 0.3, 0.4, 0.5]
-    for fraction in fraction:
-        dataset[fraction] = full_memorization(fd_real, fd_substitute, fraction)
+    for fraction in get_flaw_scales("memorization"):
+        dataset[fraction] = full_memorization(real_data, substitute_data, real_landmarks, substitute_landmarks, fraction)
     return dataset
 
-def gaussian_noise_creation(fd):
+def gaussian_noise_creation(data, landmarks):
     dataset = {}
-    noise_multiplier = [1.5, 2.0, 2.5, 3.0, 3.5]
-    for noise_multiplier in noise_multiplier:
-        dataset[noise_multiplier] = gaussian_noise(fd, noise_multiplier)
+    for noise_multiplier in get_flaw_scales("gaussian_noise"):
+        dataset[noise_multiplier] = gaussian_noise(data, landmarks, noise_multiplier)
     return dataset
 
-def mode_collapse_vary_modes_creation(fd):
+def mode_collapse_vary_modes_creation(data, landmarks):
     dataset = {}
-    num_modes = [1, 2, 3, 4, 5]
-    for num_modes in num_modes:
-        dataset[num_modes] = mode_collapse(fd, num_modes=num_modes)
+    for num_modes in get_flaw_scales("mode_collapse_vary_modes"):
+        dataset[num_modes] = mode_collapse(data, landmarks, num_modes=num_modes)
     return dataset
 
-def mode_collapse_vary_spike_ratio_creation(fd):
+def mode_collapse_vary_spike_ratio_creation(data, landmarks):
     dataset = {}
-    spike_ratio = [0.1, 0.2, 0.3, 0.4, 0.5]
-    for spike_ratio in spike_ratio:
-        dataset[spike_ratio] = mode_collapse(fd, num_modes=1, spike_ratio=spike_ratio)
+    for spike_ratio in get_flaw_scales("mode_collapse_vary_spike_ratio"):
+        dataset[spike_ratio] = mode_collapse(data, landmarks, num_modes=1, spike_ratio=spike_ratio)
     return dataset
 
-def segment_leaking_creation(fd_real, fd_substitute):
+def segment_leaking_creation(real_data, substitute_data, real_landmarks, substitute_landmarks):
     dataset = {}
-    fraction = [0.1, 0.2, 0.3, 0.4, 0.5]
-    for fraction in fraction:
-        dataset[fraction] = segment_leaking(fd_real, fd_substitute, fraction)
+    for fraction in get_flaw_scales("segment_leaking"):
+        dataset[fraction] = segment_leaking(
+            real_data, substitute_data, real_landmarks, substitute_landmarks, fraction
+        )
     return dataset
 
-def phase_shift_creation(fd, landmarks):
+def phase_shift_creation(data, landmarks):
     dataset = {}
-    shift_fraction = [0.1, 0.2, 0.3, 0.4, 0.5]
-    for shift_fraction in shift_fraction:
-        dataset[shift_fraction] = phase_shift(fd, landmarks, shift_fraction)
+    for shift_fraction in get_flaw_scales("phase_shift"):
+        dataset[shift_fraction] = phase_shift(data, landmarks, shift_fraction)
     return dataset
 
-def time_distortion_creation(fd, landmarks):
+def time_distortion_creation(data, landmarks):
     dataset = {}
-    alpha = [0.5, 1.0, 1.5, 2.0, 2.5]
-    for alpha in alpha:
-        dataset[alpha] = time_distortion(fd, landmarks, alpha)
+    for alpha in get_flaw_scales("time_distortion"):
+        dataset[alpha] = time_distortion(data, landmarks, alpha)
     return dataset
 
 if __name__ == "__main__":
@@ -89,47 +106,41 @@ if __name__ == "__main__":
     
     ### Morphological Flawed Dataset Creation ###
     real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    aligned_real_fd = extract_ecg_phase_aligned(real_all, sr)
-    n_sample, n_timepoints, n_channel = aligned_real_fd.data_matrix.shape
-    real_fd = aligned_real_fd[:n_sample//2]
-    substitute_fd = aligned_real_fd[n_sample//2:]
+    landmarks = get_landmarks(real_all, sr)
+    
+    n_data = real_all.shape[0]
+    real_data = real_all[:n_data//2]
+    real_landmarks = landmarks[:n_data//2]
+    substitute_data = real_all[n_data//2:]
+    substitute_landmarks = landmarks[n_data//2:]
+
     with open(path / "real_fd.pkl", "wb") as f:
-        pickle.dump(real_fd, f)
+        pickle.dump(real_data, f)
     with open(path / "substitute_fd.pkl", "wb") as f:
-        pickle.dump(substitute_fd, f)
-    oversmoothing_dataset = oversmoothing_creation(real_fd)
+        pickle.dump(substitute_data, f)
+    oversmoothing_dataset = oversmoothing_creation(real_data, real_landmarks)
     with open(path / "oversmoothing_dataset.pkl", "wb") as f:
         pickle.dump(oversmoothing_dataset, f)
-    memorization_dataset = memorization_creation(real_fd, substitute_fd)
+    memorization_dataset = memorization_creation(real_data, substitute_data, landmarks, landmarks)
     with open(path / "memorization_dataset.pkl", "wb") as f:
         pickle.dump(memorization_dataset, f)
-    gaussian_noise_dataset = gaussian_noise_creation(real_fd)
+    gaussian_noise_dataset = gaussian_noise_creation(real_data, real_landmarks)
     with open(path / "gaussian_noise_dataset.pkl", "wb") as f:
         pickle.dump(gaussian_noise_dataset, f)
-    mode_collapse_vary_modes_dataset = mode_collapse_vary_modes_creation(real_fd)
+    mode_collapse_vary_modes_dataset = mode_collapse_vary_modes_creation(real_data, real_landmarks)
     with open(path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
         pickle.dump(mode_collapse_vary_modes_dataset, f)
-    mode_collapse_vary_spike_ratio_dataset = mode_collapse_vary_spike_ratio_creation(real_fd)
+    mode_collapse_vary_spike_ratio_dataset = mode_collapse_vary_spike_ratio_creation(real_data, real_landmarks)
     with open(path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
         pickle.dump(mode_collapse_vary_spike_ratio_dataset, f)
-    segment_leaking_dataset = segment_leaking_creation(real_fd, substitute_fd)
+    segment_leaking_dataset = segment_leaking_creation(real_data, substitute_data, real_landmarks, substitute_landmarks)
     with open(path / "segment_leaking_dataset.pkl", "wb") as f:
         pickle.dump(segment_leaking_dataset, f)
 
     ### Temporal Flawed Dataset Creation ###
-    segments, landmarks = extract_ecg_sliding_windows(real_all, sr)
-    n_data = segments.data_matrix.shape[0]
-    real_segments = segments[:n_data//2]
-    real_landmarks = landmarks[:n_data//2]
-    substitute_segments = segments[n_data//2:]
-    substitute_landmarks = landmarks[n_data//2:]
-    with open(path / "real_segments.pkl", "wb") as f:
-        pickle.dump((real_segments, real_landmarks), f)
-    with open(path / "substitute_segments.pkl", "wb") as f:
-        pickle.dump((substitute_segments, substitute_landmarks), f)
-    phase_shift_dataset = phase_shift_creation(real_segments, real_landmarks)
+    phase_shift_dataset = phase_shift_creation(real_data, real_landmarks)
     with open(path / "phase_shift_dataset.pkl", "wb") as f:
         pickle.dump(phase_shift_dataset, f)
-    time_distortion_dataset = time_distortion_creation(real_segments, real_landmarks)
+    time_distortion_dataset = time_distortion_creation(real_data, real_landmarks)
     with open(path / "time_distortion_dataset.pkl", "wb") as f:
         pickle.dump(time_distortion_dataset, f)

@@ -1,6 +1,7 @@
 import os
 os.environ["NUMBA_NUM_THREADS"] = "1"
 
+import json
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
@@ -99,7 +100,7 @@ if __name__ == "__main__":
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             dmap_js_divergence = grid_js_divergence(real_dmap_embedding, flaw_dmap_embedding)
             dmap_mmd = mmd(real_dmap_embedding, flaw_dmap_embedding)
-            dmap_spectral_distance = spectral_distance(real_dmap_embedding, flaw_dmap_embedding)
+            # dmap_spectral_distance = spectral_distance(real_dmap_embedding, flaw_dmap_embedding)
 
             # UMAP: JS Divergence, MMD, discriminator score
             umap_js_divergence = grid_js_divergence(real_umap_embedding, flaw_umap_embedding)
@@ -114,7 +115,7 @@ if __name__ == "__main__":
             result_tracking[scenario][key]['fpca_discriminator_score'] = fpca_discriminative_score
             result_tracking[scenario][key]['dmap_js_divergence'] = dmap_js_divergence
             result_tracking[scenario][key]['dmap_mmd'] = dmap_mmd
-            result_tracking[scenario][key]['dmap_spectral_distance'] = dmap_spectral_distance
+            # result_tracking[scenario][key]['dmap_spectral_distance'] = dmap_spectral_distance
             result_tracking[scenario][key]['umap_js_divergence'] = umap_js_divergence
             result_tracking[scenario][key]['umap_mmd'] = umap_mmd
             result_tracking[scenario][key]['umap_discriminative_score'] = umap_discriminative_score
@@ -136,11 +137,6 @@ if __name__ == "__main__":
         plt.close()
     
     # Print Result Tracking
-    with open(save_path + f"fidelity_val_fpca_result.txt", "w") as f:
-        for scenario in scenarios:
-            for key in result_tracking[scenario].keys():
-                f.write(f"Scenario: {scenario}, Flaw Scale: {key}\n")
-                for key, value in result_tracking[scenario][key].items():
-                    f.write(f"    {key}: {value}\n")
-                f.write("\n")
+    with open(save_path + f"fidelity_val_fpca_result.json", "w") as f:
+        json.dump(result_tracking, f)
 

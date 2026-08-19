@@ -3,13 +3,14 @@ import wfdb
 import pandas as pd
 import numpy as np
 import neurokit2 as nk
+import matplotlib.pyplot as plt
 from skfda.representation import FDataGrid
 
 #### ---- Dataset Source ----  ####
 # https://physionet.org/content/ptb-xl/1.0.3/
 
 #### ---- Global Parameters ---- ####
-path = "../../ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
+path = "../data/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
 sampling_rate=100
 diagnostics = np.array(['NORM', 'MI', 'STTC', 'CD', 'HYP'])
 
@@ -82,22 +83,10 @@ def closest_after(target, arr):
     valid = arr[arr > target]
     return valid[0] if len(valid) > 0 else None
 
-def extract_ecg_phase_aligned(signals, sr, points_per_beat=100):
-    """
-    Preprocesses ECG signals by anchoring P-onset, R-peak, and T-offset to a continuous
-    phase domain, imputing missing anchors, and padding to a global maximum beat count.
-    
-    Parameters:
-    - signals: list of 1D numpy arrays (the raw ECG signals)
-    - sr: int, sampling rate
-    - points_per_beat: int, resolution of the resampled phase grid per cardiac cycle
-    """
-    processed_data = []
-    beat_counts = []
-    
-    # Tolerances for physiological sanity checks
+def get_landmarks(signals, sr):
     max_pr_samples = int(0.30 * sr)  # 300ms max PR interval
     max_rt_samples = int(0.45 * sr)  # 450ms max RT interval
+    landmarks = []
     
     for signal in signals:
         # 1. Feature Extraction
@@ -140,16 +129,44 @@ def extract_ecg_phase_aligned(signals, sr, points_per_beat=100):
             
         if not valid_beats:
             continue
-            
+        landmarks.append(valid_beats)
+
+    if not landmarks:
+        return np.empty((0, 0, 3), dtype=int)
+
+    max_beats = max(len(beats) for beats in landmarks)
+    padded = np.full((len(landmarks), max_beats, 3), -1, dtype=int)
+    for i, beats in enumerate(landmarks):
+        padded[i, :len(beats)] = np.asarray(beats, dtype=int)
+    return padded
+
+def align_ecg(signals, landmarks, points_per_beat=100):
+    """
+    Preprocesses ECG signals by anchoring P-onset, R-peak, and T-offset to a continuous
+    phase domain, imputing missing anchors, and padding to a global maximum beat count.
+    
+    Parameters:
+    - signals: list of 1D numpy arrays (the raw ECG signals)
+    - sr: int, sampling rate
+    - points_per_beat: int, resolution of the resampled phase grid per cardiac cycle
+    """
+    processed_data = []
+    beat_counts = []
+    
+    for signal, landmark in zip(signals, landmarks):
+        landmark = landmark[landmark[:, 1] >= 0]
+        if len(landmark) == 0:
+            continue
+
         # 3. Phase Projection Setup
-        start_idx = valid_beats[0][0]
-        end_idx = valid_beats[-1][2]
+        start_idx = landmark[0][0]
+        end_idx = landmark[-1][2]
         trimmed_signal = signal[start_idx:end_idx + 1]
         
         known_indices = []
         known_phases = []
         
-        for i, (p, r, t) in enumerate(valid_beats):
+        for i, (p, r, t) in enumerate(landmark):
             # Shift indices relative to the trimmed start
             p_rel, r_rel, t_rel = p - start_idx, r - start_idx, t - start_idx
             
@@ -163,7 +180,7 @@ def extract_ecg_phase_aligned(signals, sr, points_per_beat=100):
         continuous_phase = np.interp(all_indices, known_indices, known_phases)
         
         processed_data.append((continuous_phase, trimmed_signal))
-        beat_counts.append(len(valid_beats))
+        beat_counts.append(len(landmark))
         
     # 5. Global Shared Grid Alignment with Zero Padding
     max_beats = max(beat_counts)
@@ -187,7 +204,7 @@ def extract_ecg_phase_aligned(signals, sr, points_per_beat=100):
     
     return fd
 
-def extract_ecg_sliding_windows(signals, sr, window_beats=8, points_per_window=1000):
+def extract_ecg_sliding_windows(signals, landmarks, window_beats=8, points_per_window=1000):
     """
     Extracts fixed-beat sliding windows from ECG signals and pools them globally.
     Normalizes each extracted window to a domain of t in [0, 1] and calculates 
@@ -210,10 +227,12 @@ def extract_ecg_sliding_windows(signals, sr, window_beats=8, points_per_window=1
     # Common domain for the FDataGrid
     normalized_grid = np.linspace(0, 1, points_per_window)
     
-    for signal in signals:
-        # 1. Feature Extraction (Only R-peaks are needed for temporal analysis)
-        df, _ = nk.ecg_process(signal, sampling_rate=sr)
-        r_peaks = np.where(df['ECG_R_Peaks'] == 1)[0]
+    for signal, landmark in zip(signals, landmarks):
+        landmark = landmark[landmark[:, 1] >= 0]
+        if len(landmark) == 0:
+            continue
+
+        r_peaks = np.array(landmark)[:, 1]
         r_peaks.sort()
         if 0 in np.diff(r_peaks): continue
         if len(r_peaks) < window_beats: continue
@@ -257,8 +276,15 @@ if __name__ == "__main__":
 
     # Get Real Data
     real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    aligned_fd = extract_ecg_phase_aligned(real_all, sr)
-    print(aligned_fd.data_matrix.shape) #(6804, 2200, 1)
+    landmarks = get_landmarks(real_all, sr)
+    fd = align_ecg(real_all, landmarks)
+    # fd, global_landmarks = extract_ecg_sliding_windows(real_all, landmarks)
+    print(fd.data_matrix.shape) # Morphology: (6804, 2200, 1), Temporal: (29891, 1000, 1)
+    fd.plot()
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude (mV)")
+    plt.title("Processed ECG")
+    plt.show()
 
     
 

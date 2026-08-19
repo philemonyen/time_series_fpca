@@ -1,6 +1,7 @@
 import os
 os.environ["NUMBA_NUM_THREADS"] = "1"
 
+import json
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
@@ -71,8 +72,8 @@ if __name__ == "__main__":
             #### ------------ Evaluation ------------ ####
             # Baseline
             baseline_discriminative_score = raw_data_discriminative_score(real_fd.data_matrix, flaw_fd.data_matrix)
-            baseline_autocorrelation_score = autocorrelation_score(real_fd.data_matrix, flaw_fd.data_matrix)
-            baseline_dtw_score = dtw_score(real_fd.data_matrix, flaw_fd.data_matrix)
+            # baseline_autocorrelation_score = autocorrelation_score(real_fd.data_matrix, flaw_fd.data_matrix)
+            # baseline_dtw_score = dtw_score(real_fd.data_matrix, flaw_fd.data_matrix)
             baseline_frechet_score = frechet_score(real_fd.data_matrix, flaw_fd.data_matrix)
 
             # FPCA: MMD, LMR
@@ -95,6 +96,9 @@ if __name__ == "__main__":
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}
+            # Baseline: Discriminative Score, Frechet Score
+            result_tracking[scenario][key]['baseline_discriminative_score'] = baseline_discriminative_score
+            result_tracking[scenario][key]['baseline_frechet_score'] = baseline_frechet_score
             # FPCA: MMD, Wasserstein, LMR
             result_tracking[scenario][key]['fpca_score_mmd'] = fpca_score_mmd
             result_tracking[scenario][key]['fpca_wasserstein_score'] = fpca_wasserstein_score
@@ -123,10 +127,5 @@ if __name__ == "__main__":
         plt.close()
     
     # Print Result Tracking
-    with open(f"images/fidelity_val/morphology/fidelity_val_fpca_result.txt", "w") as f:
-        for scenario in scenarios:
-            for key in result_tracking[scenario].keys():
-                f.write(f"Scenario: {scenario}, Flaw Scale: {key}\n")
-                for key, value in result_tracking[scenario][key].items():
-                    f.write(f"    {key}: {value}\n")
-                f.write("\n")
+    with open(f"images/fidelity_val/morphology/fidelity_val_fpca_result.json", "w") as f:
+        json.dump(result_tracking, f)
