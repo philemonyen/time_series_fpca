@@ -11,6 +11,12 @@ def dcr(real, synthetic):
     dcr_train = np.min(dists_train, axis=1)
     return dcr_train
 
+def dcr_attack_percentile(canary, reference, synthetic):
+    canary_dcr = dcr(canary, synthetic)
+    reference_dcr = dcr(reference, synthetic)
+    percentile_score = np.mean(reference_dcr > canary_dcr) * 100
+    return canary_dcr, percentile_score
+
 def dcr_mia(reference, real, synthetic):
     """
     Performs DCR-based Membership Inference Attack.
@@ -39,6 +45,13 @@ def nndr_scores(real, synthetic, epsilon=1e-8):
     nndr = d1 / (d2 + epsilon)
     return nndr
 
+def nndr_attack_percentile(canary, reference, synthetic):
+    canary_nndr = nndr_scores(canary, synthetic)
+    reference_nndrs = nndr_scores(reference, synthetic)
+    percentile_score = np.mean(reference_nndrs > canary_nndr) * 100
+    
+    return canary_nndr, percentile_score
+
 def nndr_mia(reference, real, synthetic):
     """
     Performs NNDR-based Membership Inference Attack.
@@ -54,6 +67,45 @@ def nndr_mia(reference, real, synthetic):
     return fpr, tpr, thresholds, mia_auc_roc
 
 ### DOMIAS Ratio & Ratio Score-based MIA ###
+def domias_attack_percentile(canary, reference, synthetic):
+    """
+    Computes the sample-wise DOMIAS attack percentile score.
+    
+    Args:
+        canary_features: Array of shape (1, K) - The features of your single target.
+        reference_features: Array of shape (M, K) - The features of your holdout set.
+        synthetic_features: Array of shape (N, K) - The features of your synthetic set.
+        
+    Returns:
+        canary_domias_score: Float, the density ratio score of the canary.
+        percentile_score: Float (0 to 100), the attack confidence.
+    """
+    # Use your bandwidth logic (or a robust estimator like Scott's rule)
+    bandwidth = np.max(np.std(reference, axis=0))
+    if bandwidth == 0:
+        bandwidth = 1e-3 # Prevent division by zero errors
+        
+    # 1. Fit KDEs on the datasets the attacker possesses
+    kde_syn = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(synthetic)
+    kde_ref = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(reference)
+    
+    # 2. Calculate the DOMIAS score for the Canary
+    canary_log_syn = kde_syn.score_samples(canary)
+    canary_log_ref = kde_ref.score_samples(canary)
+    # Higher score means the synthetic data clusters heavily around this point
+    canary_domias_score = canary_log_syn[0] - canary_log_ref[0] 
+    
+    # 3. Calculate the DOMIAS scores for all Reference records
+    ref_log_syn = kde_syn.score_samples(reference)
+    ref_log_ref = kde_ref.score_samples(reference)
+    reference_domias_scores = ref_log_syn - ref_log_ref
+    
+    # 4. Calculate Attack Percentile
+    # We want to know what % of reference records have a LOWER density ratio than the canary.
+    percentile_score = np.mean(reference_domias_scores < canary_domias_score) * 100
+    
+    return canary_domias_score, percentile_score
+
 def domias(reference, real, synthetic):
     std_devs = np.std(real, axis=0)
     bandwidth = np.max(std_devs)
@@ -95,31 +147,4 @@ def domias_mia(reference, real, synthetic):
     # 5. Evaluate
     fpr, tpr, thresholds = roc_curve(labels, domias_scores)
     mia_auc_roc = roc_auc_score(labels, domias_scores)
-    return fpr, tpr, thresholds, mia_auc_roc
-
-### Classifier based MIA
-def classifier_mia(real, synthetic):
-    # Downsample datasets to obtain same dataset size
-    share_size  = min(real.shape[0], synthetic.shape[0])
-    real = real[:share_size]
-    synthetic = synthetic[:share_size]
-
-    # Create training data and labels
-    non_member = np.zeros(real.shape[0])
-    member = np.ones(synthetic.shape[0])
-    data = np.concatenate([real, synthetic], axis=0)
-    y = np.concatenate([non_member, member], axis=0)
-    X_train, X_test, y_train, y_test = train_test_split(
-        data, y, test_size=0.2, random_state=42, stratify=y
-    )
-
-    # 2. Train the Classifier
-    attack_classifier = RandomForestClassifier(n_estimators=100, random_state=42)
-    attack_classifier.fit(X_train, y_train)
-
-    # 3. Test the Classifier
-    y_pred_proba = attack_classifier.predict_proba(X_test)[:, 1]
-    fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba)
-    mia_auc_roc = roc_auc_score(y_test, y_pred_proba)
-
     return fpr, tpr, thresholds, mia_auc_roc

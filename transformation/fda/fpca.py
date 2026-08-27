@@ -22,7 +22,8 @@ def fpca_hyperparameter_tuning(fd, threshold=0.9):
     fpca_.fit(fd)
     var_ratio = fpca_.explained_variance_ratio_
     cumsum_var_ratio = np.cumsum(var_ratio)
-    n_components = np.argmin(cumsum_var_ratio >= threshold) + 1
+    n_components = int(np.searchsorted(cumsum_var_ratio, threshold) + 1)
+    n_components = max(1, min(n_components, max_components))
     return n_components
 
 def fpca_with_param(fd, n_components):
