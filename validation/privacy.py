@@ -3,8 +3,6 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from scipy.spatial.distance import mahalanobis
-from sklearn.preprocessing import StandardScaler
 from preprocess.ptbxl_preprocess import align_ecg
 from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
 from transformation.fda.fpca import fpca_with_param
@@ -12,75 +10,8 @@ from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.baseline.pca import *
 from transformation.baseline.fft import *
 from transformation.baseline.wavelet import *
-from scenario_engineering.controlled_flaw_modelling import inject_segment_leak
+from scenario_engineering.controlled_flaw_modelling import inject_segment_leak, find_highly_unique_target_records, create_privacy_flawed_dataset
 from metrics.privacy import *
-
-
-def find_highly_unique_target_records(real_data, n=5):
-    """
-    Extract the top n most unique target records from the real data according to Mahalanobis distance.
-    Args:
-        real_data (numpy.ndarray): The real data.
-        n (int): The number of most unique target records to extract.
-    Returns:
-        numpy.ndarray: The top n most unique target records.
-    """
-    X = np.asarray(real_data, dtype=float)
-    n_samples = X.shape[0]
-    n = min(int(n), n_samples)
-    if n_samples < 2:
-        return X[:n]
-
-    mean = np.mean(X, axis=0)
-    cov = np.cov(X, rowvar=False)
-    if np.ndim(cov) == 0:
-        cov = np.array([[float(cov)]])
-    ridge = np.trace(cov) / cov.shape[0]
-    ridge = 1e-6 * ridge if np.isfinite(ridge) and ridge > 0 else 1e-6
-    cov = cov + ridge * np.eye(cov.shape[0])
-    VI = np.linalg.pinv(cov)
-
-    # Score each record against the mean of the remaining points, using a
-    # shared precision matrix so the Mahalanobis metric is stable.
-    mean_rest = (n_samples * mean - X) / (n_samples - 1)
-    distances = np.array([
-        mahalanobis(X[i], mean_rest[i], VI) for i in range(n_samples)
-    ])
-
-    top_idx = np.argpartition(distances, -n)[-n:]
-    top_idx = top_idx[np.argsort(distances[top_idx])[::-1]]
-    return top_idx
-
-def create_privacy_flawed_dataset(synthetic_data, landmarks, leak_scale, proportion, unique_target_records):
-    """
-    Replace a random fraction of synthetic records with privacy-leaked samples.
-
-    Each unique target is spliced into a host synthetic series via
-    `inject_segment_leak`. Those leaked traces then overwrite a random
-    `proportion` of the synthetic set (sampled with replacement if there are
-    fewer leaked traces than slots). Landmarks are remapped with the same
-    indices: if synthetic record j is replaced by flawed sample i, landmark j
-    is replaced by landmark i.
-    """
-    n_unique = len(unique_target_records)
-    privacy_flawed_samples = np.stack([
-        inject_segment_leak(unique_target_records[i], synthetic_data[i], leak_scale)
-        for i in range(n_unique)
-    ])
-
-    flawed_dataset = np.array(synthetic_data, copy=True)
-    flawed_landmarks = np.array(landmarks, copy=True)
-    n_synth = flawed_dataset.shape[0]
-    n_replace = int(round(float(proportion) * n_synth))
-    n_replace = min(max(n_replace, 0), n_synth)
-    if n_replace == 0:
-        return flawed_dataset, flawed_landmarks
-
-    replace_idx = np.random.choice(n_synth, size=n_replace, replace=False)
-    fill_idx = np.random.choice(n_unique, size=n_replace, replace=True)
-    flawed_dataset[replace_idx] = privacy_flawed_samples[fill_idx]
-    flawed_landmarks[replace_idx] = flawed_landmarks[fill_idx]
-    return flawed_dataset, flawed_landmarks
 
 def distribution_plotting(data, name, save_path):
     plt.figure(figsize=(7, 6))
@@ -271,8 +202,8 @@ if __name__ == "__main__":
     dmap_dcr_fprs, dmap_dcr_tprs, dmap_dcr_roc_aucs = [], [], []
     dmap_nndr_fprs, dmap_nndr_tprs, dmap_nndr_roc_aucs = [], [], []
     dmap_domias_fprs, dmap_domias_tprs, dmap_domias_roc_aucs = [], [], []
+    
     for leak_scale in leak_scales:
-
         flaw_dataset, flaw_landmarks = create_privacy_flawed_dataset(synthetic_data, reference_landmarks, leak_scale, proportion, unique_target_records)
         flaw_fd = align_ecg(flaw_dataset, flaw_landmarks)
 

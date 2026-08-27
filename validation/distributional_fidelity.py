@@ -11,7 +11,7 @@ from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, ba
 from transformation.fda.fpca import fpca_with_param
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
-from scenario_engineering.dataset_creation import get_morphology_scenarios, get_distributional_scenarios
+from scenario_engineering.dataset_creation import get_distributional_scenarios
 from transformation.baseline.pca import *
 from transformation.baseline.fft import *
 from transformation.baseline.wavelet import *
@@ -68,7 +68,6 @@ if __name__ == "__main__":
         for key, (flaw_data, flaw_fd) in datasets.items():
             #### ------------ Transformations ------------ ####
             # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet
-            n = pca_n_components(flaw_data)
             flaw_unaligned_pca_scores = pca_transform(flaw_data, real_unaligned_pca_model)
             flaw_unaligned_fft_scores = fft_transform(flaw_data, real_unaligned_fft_basis)
             flaw_unaligned_wavelet_scores = wavelet_transform(flaw_data, real_unaligned_wavelet_basis)

@@ -113,7 +113,12 @@ if __name__ == "__main__":
             unaligned_wavelet_wasserstein_score = wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
             unaligned_wavelet_mmd_score = mmd(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
 
-            # FPCA: MMD, LMR
+            # Warping Function: MMD, Wasserstein, Frechet Score
+            warping_frechet_score = frechet_score(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            warping_wasserstein_score = wasserstein(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            warping_mmd_score = mmd(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            
+            # FPCA: MMD, Wasserstein, Frechet Score
             fpca_frechet_score = frechet_score(real_scores, flaw_scores)
             fpca_score_mmd = mmd(real_scores, flaw_scores)
             fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
