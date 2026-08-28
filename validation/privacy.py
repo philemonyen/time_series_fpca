@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from skfda.representation.grid import FDataGrid
 from preprocess.ptbxl_preprocess import align_ecg
 from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
 from transformation.fda.fpca import fpca_with_param
@@ -91,6 +92,7 @@ if __name__ == "__main__":
     lambda_ = basis_smoothing_hyperparameter_tuning(holdout_fd, n_basis, domain_range)
     holdout_fd_smooth, _, _, _ = basis_smoothing_with_lambda(holdout_fd, lambda_, n_basis, domain_range)
     holdout_mean, holdout_components, holdout_scores, holdout_var_ratio, holdout_fpca_ = fpca_with_param(holdout_fd_smooth, n_components)
+    holdout_grid = holdout_fpca_.components_.grid_points[0]
 
     holdout_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(holdout_scores)
     holdout_dmap_evals = holdout_dmap.evals_
@@ -131,8 +133,8 @@ if __name__ == "__main__":
         attack_percentile_results[leak_scale] = {}
 
         # Create a privacy flawed sample
-        flaw_sample = inject_segment_leak(real_data[unique_record_idx[0]], reference_data[0], leak_scale)
-        flaw_fd = align_ecg(flaw_sample, reference_landmarks)
+        flaw_sample = inject_segment_leak(real_data[unique_record_idx[i]], reference_data[i], leak_scale)
+        flaw_fd = align_ecg([flaw_sample], reference_landmarks)
 
         ### Transformations
         # Baseline Transformations: PCA, FFT, Wavelet
@@ -141,6 +143,10 @@ if __name__ == "__main__":
         flaw_wavelet_scores = wavelet_transform(flaw_sample, reference_wavelet_basis)
 
         # FPCA + Diffusion Map
+        lambda_ = basis_smoothing_hyperparameter_tuning(flaw_fd, n_basis, domain_range)
+        flaw_fd_smooth, _, _, _ = basis_smoothing_with_lambda(flaw_fd, lambda_, n_basis, domain_range)
+        flaw_data_matrix = flaw_fd_smooth(holdout_grid)
+        flaw_fd_smooth = FDataGrid(data_matrix=flaw_data_matrix, grid_points=holdout_grid)
         flaw_fpca_scores = holdout_fpca_.transform(flaw_fd)
         flaw_dmap_embedding = holdout_dmap.transform(flaw_fpca_scores)
 
@@ -214,6 +220,10 @@ if __name__ == "__main__":
         flaw_wavelet_scores = wavelet_transform(flaw_dataset, reference_wavelet_basis)
 
         # FPCA + Diffusion Map
+        lambda_ = basis_smoothing_hyperparameter_tuning(flaw_fd, n_basis, domain_range)
+        flaw_fd_smooth, _, _, _ = basis_smoothing_with_lambda(flaw_fd, lambda_, n_basis, domain_range)
+        flaw_data_matrix = flaw_fd_smooth(holdout_grid)
+        flaw_fd_smooth = FDataGrid(data_matrix=flaw_data_matrix, grid_points=holdout_grid)
         flaw_fpca_scores = holdout_fpca_.transform(flaw_fd)
         flaw_dmap_embedding = holdout_dmap.transform(flaw_fpca_scores)
 

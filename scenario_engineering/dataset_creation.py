@@ -201,6 +201,8 @@ if __name__ == "__main__":
         pickle.dump(real_data, f)
     with open(path / "substitute_data.pkl", "wb") as f:
         pickle.dump(substitute_data, f)
+    with open(path / "substitute_landmarks.pkl", "wb") as f:
+        pickle.dump(substitute_landmarks, f)
 
     # Original Aligned Dataset
     read_fd = align_ecg(real_data, real_landmarks)
