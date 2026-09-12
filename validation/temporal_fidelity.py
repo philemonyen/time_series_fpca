@@ -98,70 +98,45 @@ if __name__ == "__main__":
 
             #### ------------ Evaluation ------------ ####
             # Baseline: Raw Data
-            raw_unaligned_data_frechet_score = frechet_score(real_data, flaw_data)
             raw_unaligned_data_wasserstein_score = wasserstein(real_data, flaw_data)
-            raw_unaligned_data_mmd_score = mmd(real_data, flaw_data)
 
             # Baseline: PCA, FFT, Wavelet
-            unaligned_pca_frechet_score = frechet_score(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
             unaligned_pca_wasserstein_score = wasserstein(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_pca_mmd_score = mmd(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_fft_frechet_score = frechet_score(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
             unaligned_fft_wasserstein_score = wasserstein(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_fft_mmd_score = mmd(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_wavelet_frechet_score = frechet_score(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
             unaligned_wavelet_wasserstein_score = wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
-            unaligned_wavelet_mmd_score = mmd(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
 
-            # Warping Function: MMD, Wasserstein, Frechet Score
-            warping_frechet_score = frechet_score(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            # Warping Function: Wasserstein
             warping_wasserstein_score = wasserstein(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
-            warping_mmd_score = mmd(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
             
-            # FPCA: MMD, Wasserstein, Frechet Score
-            fpca_frechet_score = frechet_score(real_scores, flaw_scores)
-            fpca_score_mmd = mmd(real_scores, flaw_scores)
+            # FPCA: Wasserstein
             fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             dmap_js_divergence = grid_js_divergence(real_dmap_embedding, flaw_dmap_embedding)
-            dmap_mmd = mmd(real_dmap_embedding, flaw_dmap_embedding)
             dmap_spectral_distance = spectral_distance(real_dmap_embedding, flaw_dmap_embedding)
 
             # UMAP: JS Divergence, MMD, discriminator score
             umap_js_divergence = grid_js_divergence(real_umap_embedding, flaw_umap_embedding)
-            umap_mmd = mmd(real_umap_embedding, flaw_umap_embedding)
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}
-            # Raw Unaligned Data: Frechet Score, Wasserstein Score, MMD Score
-            result_tracking[scenario][key]['raw_unaligned_data_frechet_score'] = raw_unaligned_data_frechet_score
+            # Raw Unaligned Data: Wasserstein Score
             result_tracking[scenario][key]['raw_unaligned_data_wasserstein_score'] = raw_unaligned_data_wasserstein_score
-            result_tracking[scenario][key]['raw_unaligned_data_mmd_score'] = raw_unaligned_data_mmd_score
             
-            # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet: Frechet Score, Wasserstein Score, MMD Score
-            result_tracking[scenario][key]['unaligned_pca_frechet_score'] = unaligned_pca_frechet_score
+            # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet: Wasserstein Score
             result_tracking[scenario][key]['unaligned_pca_wasserstein_score'] = unaligned_pca_wasserstein_score
-            result_tracking[scenario][key]['unaligned_pca_mmd_score'] = unaligned_pca_mmd_score
-            result_tracking[scenario][key]['unaligned_fft_frechet_score'] = unaligned_fft_frechet_score
             result_tracking[scenario][key]['unaligned_fft_wasserstein_score'] = unaligned_fft_wasserstein_score
-            result_tracking[scenario][key]['unaligned_fft_mmd_score'] = unaligned_fft_mmd_score
-            result_tracking[scenario][key]['unaligned_wavelet_frechet_score'] = unaligned_wavelet_frechet_score
             result_tracking[scenario][key]['unaligned_wavelet_wasserstein_score'] = unaligned_wavelet_wasserstein_score
-            result_tracking[scenario][key]['unaligned_wavelet_mmd_score'] = unaligned_wavelet_mmd_score
             
-            # FPCA: MMD, Wasserstein, LMR
-            result_tracking[scenario][key]['fpca_score_mmd'] = fpca_score_mmd
+            # FPCA: Wasserstein
             result_tracking[scenario][key]['fpca_wasserstein_score'] = fpca_wasserstein_score
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             result_tracking[scenario][key]['dmap_js_divergence'] = dmap_js_divergence
-            result_tracking[scenario][key]['dmap_mmd'] = dmap_mmd
             result_tracking[scenario][key]['dmap_spectral_distance'] = dmap_spectral_distance
 
             # UMAP: JS Divergence, MMD, discriminator score
             result_tracking[scenario][key]['umap_js_divergence'] = umap_js_divergence
-            result_tracking[scenario][key]['umap_mmd'] = umap_mmd
 
             plt.scatter(real_umap_embedding[:, 0], real_umap_embedding[:, 1], label="Real")
             plt.scatter(flaw_umap_embedding[:, 0], flaw_umap_embedding[:, 1], label="Flaw")
@@ -171,6 +146,6 @@ if __name__ == "__main__":
             plt.close()
     
     # Save Result Tracking
-    with open(f"images/fidelity_val/temporal/fidelity_val_fpca_result.json", "w") as f:
+    with open(f"images/fidelity_val/temporal/fidelity_val_temporal_result.json", "w") as f:
         json.dump(result_tracking, f)
 

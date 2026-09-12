@@ -38,28 +38,20 @@ def get_flaw_scales(scenario):
         # 20 = 200 ms (T-wave).
         return [4, 8, 12, 16, 20]
         
-    elif scenario == "memorization":
-        # Fraction of synthetic records replaced by exact real traces.
-        # ECG morphology is identifying; a few clones already leak identity.
-        return [0.02, 0.05, 0.10, 0.15, 0.25]
-        
     elif scenario == "gaussian_noise":
         # Noise sigma as a multiple of the ECG std.
         # 0.05 ~ subtle EMG; 0.25 diagnostic quality drops; 1.0 QRS still visible.
         return [0.05, 0.10, 0.25, 0.50, 1.00]
         
-    elif scenario == "mode_collapse_vary_modes":
-        # Number of stereotyped 10 s templates the generator collapses onto.
-        return [1, 2, 3, 4, 5]
+    elif scenario == "baseline_drift":
+        # Amplitude of the low-frequency drift wave as a fraction of the signal's std.
+        # 0.10 ~ subtle wander; 1.00 ~ drift amplitude equals the signal's variance.
+        return [0.10, 0.25, 0.50, 0.75, 1.00]
         
-    elif scenario == "mode_collapse_vary_spike_ratio":
-        # Fraction of the synthetic set copied from a single template.
-        return [0.05, 0.10, 0.15, 0.20, 0.30]
-        
-    elif scenario == "segment_leaking":
-        # Fraction of synthetic records that receive a one-beat real splice
-        # (~80 samples = 800 ms at 100 Hz).
-        return [0.05, 0.10, 0.15, 0.20, 0.30]
+    elif scenario == "spurious_transient":
+        # Amplitude of a hallucinated, high-frequency spike as a multiple of signal std.
+        # 0.5 ~ minor P/T-wave sized notch; 2.0 ~ prominent artifact; 4.0 ~ massive, unnatural spike.
+        return [0.5, 1.0, 2.0, 3.0, 4.0]
         
     elif scenario == "phase_shift":
         # Delay of internal R-peaks as a fraction of local RR.
@@ -76,20 +68,23 @@ def get_flaw_scales(scenario):
         # 0.02 ~ subtle 16 ms jitter; 0.05 ~ 40 ms; 0.20 ~ 160 ms (highly irregular).
         return [0.02, 0.05, 0.10, 0.15, 0.20]
         
-    elif scenario == "baseline_drift":
-        # Amplitude of the low-frequency drift wave as a fraction of the signal's std.
-        # 0.10 ~ subtle wander; 1.00 ~ drift amplitude equals the signal's variance.
-        return [0.10, 0.25, 0.50, 0.75, 1.00]
-        
     elif scenario == "loss_of_autocorrelation":
         # Fraction of internal RR segments (heartbeats) selected for random shuffling.
         # 0.20 ~ ~2 beats swapped (minor temporal glitch); 1.00 ~ fully randomized sequence.
         return [0.20, 0.40, 0.60, 0.80, 1.00]
         
-    elif scenario == "spurious_transient":
-        # Amplitude of a hallucinated, high-frequency spike as a multiple of signal std.
-        # 0.5 ~ minor P/T-wave sized notch; 2.0 ~ prominent artifact; 4.0 ~ massive, unnatural spike.
-        return [0.5, 1.0, 2.0, 3.0, 4.0]
+    elif scenario == "mode_collapse_vary_modes":
+        # Number of stereotyped 10 s templates the generator collapses onto.
+        return [1, 2, 3, 4, 5]
+        
+    elif scenario == "mode_collapse_vary_spike_ratio":
+        # Fraction of the synthetic set copied from a single template.
+        return [0.05, 0.10, 0.15, 0.20, 0.30]
+        
+    elif scenario == "segment_leaking":
+        # Fraction of synthetic records that receive a one-beat real splice
+        # (~80 samples = 800 ms at 100 Hz).
+        return [0.05, 0.10, 0.15, 0.20, 0.30]
         
     else:
         raise ValueError(f"Unknown flaw scenario: {scenario}")
