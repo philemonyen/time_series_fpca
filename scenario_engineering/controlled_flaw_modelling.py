@@ -37,22 +37,18 @@ def gaussian_noise(real_data, landmarks, noise_multiplier=0.05):
     return synthetic_data, landmarks
 
 ### Distributional Flawed Scenario Engineering ###
-def mode_collapse(real_data, real_landmarks, num_modes=5, target_size=500, spike_ratio=0.10):
+def mode_collapse(real_data, real_landmarks, num_modes=5, spike_ratio=0.50):
     """
     Creates a dataset exhibiting mode collapse by forcing regional density spikes 
     while maintaining a fixed total population size.
     """
     total_real_samples = real_data.shape[0]
+    max_spike_size = total_real_samples // num_modes
     
     # Calculate partition sizes
-    spike_size = int(target_size * spike_ratio) # e.g., 500 * 0.10 = 50 copies per mode
+    spike_size = int(max_spike_size * spike_ratio)
     total_spike_samples = num_modes * spike_size
-    remaining_samples = target_size - total_spike_samples
-    
-    if total_spike_samples > target_size:
-        raise ValueError("Total spike samples exceed target dataset size. Reduce num_modes or spike_ratio.")
-    if remaining_samples > (total_real_samples - num_modes):
-        raise ValueError("Not enough real data to fill the remaining population without replacement.")
+    remaining_samples = total_real_samples - total_spike_samples
 
     # 1. Select the modes (templates for the spikes)
     mode_indices = np.random.choice(total_real_samples, size=num_modes, replace=False)
@@ -64,7 +60,7 @@ def mode_collapse(real_data, real_landmarks, num_modes=5, target_size=500, spike
     collapsed_landmarks = np.repeat(templates_landmarks, spike_size, axis=0)
 
     # Add microscopic noise to the collapsed samples so they aren't perfectly identical
-    micro_noise = np.random.normal(0, np.std(real_data) * 0.005, size=collapsed_data.shape)
+    micro_noise = np.random.normal(0, np.std(real_data, axis=0) * 0.005, size=collapsed_data.shape)
     collapsed_data += micro_noise
     
     # 3. Fill the rest of the population with a random subset of the remaining real data
@@ -80,7 +76,7 @@ def mode_collapse(real_data, real_landmarks, num_modes=5, target_size=500, spike
 
     
     # 5. Shuffle the dataset to randomly distribute the spikes throughout the arrays
-    shuffle_idx = np.random.permutation(target_size)
+    shuffle_idx = np.random.permutation(total_real_samples)
     synthetic_data = synthetic_data[shuffle_idx]
     synthetic_landmarks = synthetic_landmarks[shuffle_idx]
 
@@ -392,97 +388,45 @@ def loss_of_autocorrelation(data, landmarks, shuffle_ratio=0.5):
     return distorted_data, distorted_landmarks
 
 ### Privacy Flawed Scenario Engineering ###
-def find_highly_unique_target_records(real_data, n=5):
+def privacy_leaking_data(real_fpcs, real_scores, eigenvalues, portion_ratio, leaking_ratio, safe_noise_scale=5.0):
     """
-    Extract the top n most unique target records from the real data according to Mahalanobis distance.
-    Args:
-        real_data (numpy.ndarray): The real data.
-        n (int): The number of most unique target records to extract.
-    Returns:
-        numpy.ndarray: The top n most unique target records.
+    Creates a privacy-flawed synthetic dataset while maintaining functional fidelity.
+    
+    `real_fpcs`: Eigenfunctions of the real data (Shape: [num_components, timepoints]).
+    `real_scores`: FPC scores of the real data (Shape: [sample_size, num_components]).
+    `eigenvalues`: The variance of each FPC (Shape: [num_components]).
+    `portion_ratio`: Ratio of the dataset to be compromised (Penetration Rate).
+    `leaking_ratio`: Noise multiplier for the compromised data (Leakage Severity).
+    `safe_noise_scale`: Noise multiplier for the "safe" background data.
     """
-    X = np.asarray(real_data, dtype=float)
-    n_samples = X.shape[0]
-    n = min(int(n), n_samples)
-    if n_samples < 2:
-        return X[:n]
-
-    mean = np.mean(X, axis=0)
-    cov = np.cov(X, rowvar=False)
-    if np.ndim(cov) == 0:
-        cov = np.array([[float(cov)]])
-    ridge = np.trace(cov) / cov.shape[0]
-    ridge = 1e-6 * ridge if np.isfinite(ridge) and ridge > 0 else 1e-6
-    cov = cov + ridge * np.eye(cov.shape[0])
-    VI = np.linalg.pinv(cov)
-
-    # Score each record against the mean of the remaining points, using a
-    # shared precision matrix so the Mahalanobis metric is stable.
-    mean_rest = (n_samples * mean - X) / (n_samples - 1)
-    distances = np.array([
-        mahalanobis(X[i], mean_rest[i], VI) for i in range(n_samples)
-    ])
-
-    top_idx = np.argpartition(distances, -n)[-n:]
-    top_idx = top_idx[np.argsort(distances[top_idx])[::-1]]
-    return top_idx
-
-def create_privacy_flawed_dataset(synthetic_data, landmarks, leak_scale, proportion, unique_target_records):
-    """
-    Replace a random fraction of synthetic records with privacy-leaked samples.
-
-    Each unique target is spliced into a host synthetic series via
-    `inject_segment_leak`. Those leaked traces then overwrite a random
-    `proportion` of the synthetic set (sampled with replacement if there are
-    fewer leaked traces than slots). Landmarks are remapped with the same
-    indices: if synthetic record j is replaced by flawed sample i, landmark j
-    is replaced by landmark i.
-    """
-    n_unique = len(unique_target_records)
-    privacy_flawed_samples = np.stack([
-        inject_segment_leak(unique_target_records[i], synthetic_data[i], leak_scale)
-        for i in range(n_unique)
-    ])
-
-    flawed_dataset = np.array(synthetic_data, copy=True)
-    flawed_landmarks = np.array(landmarks, copy=True)
-    n_synth = flawed_dataset.shape[0]
-    n_replace = int(round(float(proportion) * n_synth))
-    n_replace = min(max(n_replace, 0), n_synth)
-    if n_replace == 0:
-        return flawed_dataset, flawed_landmarks
-
-    replace_idx = np.random.choice(n_synth, size=n_replace, replace=False)
-    fill_idx = np.random.choice(n_unique, size=n_replace, replace=True)
-    flawed_dataset[replace_idx] = privacy_flawed_samples[fill_idx]
-    flawed_landmarks[replace_idx] = flawed_landmarks[fill_idx]
-    return flawed_dataset, flawed_landmarks
-
-def inject_segment_leak(canary_record, host_record, leak_ratio, transition_width=10):
-    """
-    Injects a prefix of the canary into the host with a smooth cross-fade.
+    sample_size = real_scores.shape[0]
+    num_components = real_scores.shape[1]
     
-    leak_ratio: Float (0.0 to 1.0) indicating how much of the sequence to leak.
-    transition_width: Number of timepoints over which to blend the splice.
-    """
-    n_timepoints = len(canary_record)
-    leaked_length = int(n_timepoints * leak_ratio)
+    # Standard deviation of each principal component
+    std_devs = np.sqrt(eigenvalues)
+
+    # 1. Generate Safe Synthetic Base (High Perturbation on Scores)
+    # We add large noise strictly proportional to each component's natural variance
+    safe_noise = np.random.normal(loc=0.0, scale=safe_noise_scale * std_devs, size=real_scores.shape)
+    safe_scores = real_scores + safe_noise
     
-    # Create the weight vector w(t)
-    weights = np.zeros(n_timepoints)
+    # Reconstruct safe data using the pristine eigenfunctions
+    synthetic_data = safe_scores @ real_fpcs 
+
+    # 2. Select a portion of the real data to be leaked
+    leaking_size = int(sample_size * portion_ratio)
+    selected_indices = np.random.choice(sample_size, size=leaking_size, replace=False)
     
-    # 1. Fully leaked segment
-    weights[:leaked_length] = 1.0
+    # 3. Generate Compromised Data (Low Perturbation on Scores)
+    # We add slight noise based on the leaking_ratio to simulate memorization
+    leaking_noise = np.random.normal(loc=0.0, scale=leaking_ratio * std_devs, size=(leaking_size, num_components))
+    compromised_scores = real_scores[selected_indices] + leaking_noise
     
-    # 2. Smooth transition window (linear fade)
-    fade_end = min(leaked_length + transition_width, n_timepoints)
-    actual_width = fade_end - leaked_length
-    
-    if actual_width > 0:
-        fade = np.linspace(1.0, 0.0, actual_width)
-        weights[leaked_length:fade_end] = fade
-        
-    # 3. Apply cross-fade
-    flawed_record = (weights * canary_record) + ((1.0 - weights) * host_record)
-    
-    return flawed_record
+    # Reconstruct compromised data using the pristine eigenfunctions
+    leaking_data = compromised_scores @ real_fpcs
+
+    # 4. Put together and shuffle
+    synthetic_data[selected_indices] = leaking_data
+    np.random.shuffle(synthetic_data)
+
+    return synthetic_data, compromised_scores

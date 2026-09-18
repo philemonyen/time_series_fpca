@@ -11,7 +11,7 @@ from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, ba
 from transformation.fda.fpca import fpca_with_param
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
-from scenario_engineering.dataset_creation import get_morphology_scenarios
+from scenario_engineering.dataset_creation import get_morphology_scenarios, get_temporal_scenarios, get_distributional_scenarios
 from transformation.baseline.pca import *
 from transformation.baseline.fft import *
 from transformation.baseline.wavelet import *
@@ -26,20 +26,18 @@ if __name__ == "__main__":
 
     np.random.seed(42)
 
-    ### Get Real Unaligned Data
+    ### Get Real Unaligned and Aligned Data
     with open(f"data/validation/real_data.pkl", "rb") as f:
         real_data = pickle.load(f)
+    with open(f"data/validation/real_fd.pkl", "rb") as f:
+        real_fd = pickle.load(f)
+    n_sample, n_timepoints, n_channel = real_fd.data_matrix.shape
+    n_basis = int(n_timepoints / 2)
 
     # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet
     real_unaligned_pca_scores, real_unaligned_pca_model = pca(real_data)
     real_unaligned_fft_scores, real_unaligned_fft_basis = fft(real_data, k=10)
     real_unaligned_wavelet_scores, real_unaligned_wavelet_basis = wavelet(real_data, [(22.5, 45.0, (11.25, 22.5), (5.6, 11.25), (2.8, 5.6))])
-
-    ### Get Real Aligned Data
-    with open(f"data/validation/real_fd.pkl", "rb") as f:
-        real_fd = pickle.load(f)
-    n_sample, n_timepoints, n_channel = real_fd.data_matrix.shape
-    n_basis = int(n_timepoints / 2)
 
     # Baseline Transformations on Aligned Data: PCA, FFT, Wavelet
     real_aligned_pca_scores, real_aligned_pca_model = pca(real_fd.data_matrix.squeeze())
@@ -52,7 +50,7 @@ if __name__ == "__main__":
     real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(real_fd_smooth, n_components)
     real_fd_grid = real_fpca_.components_.grid_points[0]
 
-    scenarios = get_morphology_scenarios()
+    scenarios = get_morphology_scenarios() + get_temporal_scenarios() + get_distributional_scenarios()
     result_tracking = {}
     for scenario in scenarios:
         # Result save path
@@ -60,7 +58,7 @@ if __name__ == "__main__":
         path=Path(save_path)
         path.mkdir(parents=True, exist_ok=True)
 
-        with open(f"data/validation/{scenario}_dataset.pkl", "rb") as f:
+        with open(f"data/validation/morphology/{scenario}_dataset.pkl", "rb") as f:
             datasets = pickle.load(f)
         
         result_tracking[scenario] = {}

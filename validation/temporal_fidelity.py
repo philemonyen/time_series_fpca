@@ -14,7 +14,7 @@ from transformation.baseline.fft import *
 from transformation.baseline.pca import *
 from transformation.baseline.wavelet import *
 from metrics.fidelity import *
-from scenario_engineering.dataset_creation import get_temporal_scenarios
+from scenario_engineering.dataset_creation import get_temporal_scenarios, get_morphology_scenarios, get_distributional_scenarios
 
 if __name__ == "__main__":
     ## ------------ Data Preparation ------------ ##
@@ -58,14 +58,14 @@ if __name__ == "__main__":
         plt.close()
 
 
-    scenarios = get_temporal_scenarios()
+    scenarios = get_temporal_scenarios() + get_morphology_scenarios() + get_distributional_scenarios()
     result_tracking = {}
     for scenario in scenarios:
         save_path = f"images/fidelity_val/temporal/{scenario}/"
         path=Path(save_path)
         path.mkdir(parents=True, exist_ok=True)
         
-        with open(f"data/validation/{scenario}_dataset.pkl", "rb") as f:
+        with open(f"data/validation/temporal/{scenario}_dataset.pkl", "rb") as f:
             datasets = pickle.load(f)
 
         scales = []

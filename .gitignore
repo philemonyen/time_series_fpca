@@ -3,6 +3,7 @@ images/
 results/
 data/
 nibi/
+nibi_data/
 .DS_Store
 *.npy
 *.ipynb

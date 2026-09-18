@@ -11,3 +11,4 @@ fastdtw
 statsmodels
 neurokit2
 skfda
+xgboost
