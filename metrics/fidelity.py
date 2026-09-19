@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.linalg import sqrtm
 from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics.pairwise import rbf_kernel
 from scipy.spatial.distance import pdist, squareform, jensenshannon
 from scipy.linalg import eigh
 from statsmodels.tsa.stattools import acf
@@ -90,87 +89,39 @@ def dtw_score(real_data, synthetic_data, num_samples=100):
     avg_dtw = total_dtw / num_samples
     return avg_dtw
 
-# Spatial Metrics
-def frechet_score(real_data, synthetic_data, num_samples=100):
+def sample_wise_warping_l2(real_warping_funcs, synth_warping_funcs):
     """
-    Computes the Expected Fréchet Distance between real and synthetic time series
-    using a dynamic programming approach for the discrete Fréchet distance.
-    
-    Parameters:
-    - real_data: np.ndarray of shape (N, T)
-    - synthetic_data: np.ndarray of shape (N, T)
-    - num_samples: int, number of random pairs to evaluate
-    
-    Returns:
-    - avg_frechet: float, average Fréchet distance. Lower is better.
+    Calculates the sample-wise temporal fidelity using the L2 norm on warping functions.
+    Assumes functions are discretized on identical time grids.
     """
-    N_real = len(real_data)
-    N_synth = len(synthetic_data)
-    num_samples = min(num_samples, N_real, N_synth)
+    # Calculate pairwise L2 (Euclidean) distances across the discretized function arrays
+    distances = cdist(synth_warping_funcs, real_warping_funcs, metric='euclidean')
     
-    # Randomly sample indices to create pairs
-    idx_real = np.random.choice(N_real, size=num_samples, replace=False)
-    idx_synth = np.random.choice(N_synth, size=num_samples, replace=False)
+    # Extract the distance to the nearest real warping function for each synthetic sample
+    nearest_neighbor_distances = np.min(distances, axis=1)
     
-    total_frechet = 0.0
-    
-    for r_idx, s_idx in zip(idx_real, idx_synth):
-        # Univariate series as (T, 1) point sequences for cdist
-        seq_real = np.asarray(real_data[r_idx], dtype=float).reshape(-1, 1)
-        seq_synth = np.asarray(synthetic_data[s_idx], dtype=float).reshape(-1, 1)
-        
-        # 1. Compute pairwise Euclidean distance matrix between all time steps
-        # dist_matrix shape: (T_real, T_synth)
-        dist_matrix = cdist(seq_real, seq_synth, metric='euclidean')
-        
-        T_r, T_s = dist_matrix.shape
-        ca = np.zeros((T_r, T_s))
-        
-        # 2. Dynamic Programming Initialization
-        ca[0, 0] = dist_matrix[0, 0]
-        
-        for i in range(1, T_r):
-            ca[i, 0] = max(ca[i-1, 0], dist_matrix[i, 0])
-            
-        for j in range(1, T_s):
-            ca[0, j] = max(ca[0, j-1], dist_matrix[0, j])
-            
-        # 3. Dynamic Programming Traversal
-        for i in range(1, T_r):
-            for j in range(1, T_s):
-                # The cost is the max of the current spatial distance and the min of the previous path costs
-                min_prev_cost = min(
-                    ca[i-1, j],    # moving along seq_real
-                    ca[i, j-1],    # moving along seq_synth
-                    ca[i-1, j-1]   # moving along both
-                )
-                ca[i, j] = max(dist_matrix[i, j], min_prev_cost)
-                
-        # The Fréchet distance for this pair is the value at the bottom-right of the cost matrix
-        distance = ca[-1, -1]
-        total_frechet += distance
-        
-    avg_frechet = total_frechet / num_samples
-    return avg_frechet
+    # Return the expected temporal precision
+    return np.mean(nearest_neighbor_distances)
 
-def mmd(X, Y, gamma=None):
+# Spatial Metrics
+def sample_wise_mahalanobis(real_fpc_scores, synth_fpc_scores):
     """
-    Computes the True Maximum Mean Discrepancy using an RBF kernel.
-    Captures differences in means, variances, and non-linear shapes.
+    Calculates the sample-wise morphological fidelity using Mahalanobis distance 
+    in the amplitude FPC space.
     """
-    # If gamma is None, use the median heuristic or default to 1 / n_features
-    if gamma is None:
-        gamma = 1.0 / X.shape[1]
-        
-    K_XX = rbf_kernel(X, X, gamma=gamma)
-    K_YY = rbf_kernel(Y, Y, gamma=gamma)
-    K_XY = rbf_kernel(X, Y, gamma=gamma)
+    # Calculate the covariance matrix of the real FPC scores and its inverse
+    # Using pseudoinverse (pinv) prevents crashes if the FPC space is rank-deficient
+    cov_matrix = np.cov(real_fpc_scores, rowvar=False)
+    inv_cov_matrix = np.linalg.pinv(cov_matrix)
     
-    # MMD^2 formula
-    mmd_squared = np.mean(K_XX) + np.mean(K_YY) - 2 * np.mean(K_XY)
+    # Calculate pairwise Mahalanobis distances between all synthetic and real samples
+    distances = cdist(synth_fpc_scores, real_fpc_scores, metric='mahalanobis', VI=inv_cov_matrix)
     
-    # Relu to prevent tiny negative numbers due to floating point precision
-    return np.sqrt(np.max([mmd_squared, 0.0]))
+    # Extract the minimum distance (nearest real neighbor) for each synthetic sample
+    nearest_neighbor_distances = np.min(distances, axis=1)
+    
+    # Return the expected nearest-neighbor precision
+    return np.mean(nearest_neighbor_distances)
 
 def wasserstein(X, Y, eps=1e-6):
     """
@@ -264,63 +215,6 @@ def grid_js_divergence(real_coords: np.ndarray,
     js_divergence = float(js_distance ** 2)
     
     return js_divergence
-
-def get_diffusion_eigenvalues(data, k=10, sigma=None):
-    """
-    Constructs the diffusion operator and returns its top k eigenvalues.
-    """
-    # 1. Compute pairwise squared Euclidean distances
-    sq_dists = squareform(pdist(data, metric='sqeuclidean'))
-    
-    # 2. Estimate kernel bandwidth (sigma) using the median distance heuristic if not provided
-    if sigma is None:
-        sigma = np.median(sq_dists)
-        if sigma == 0.0:
-            sigma = 1e-5
-            
-    # 3. Compute the Gaussian (Heat) affinity matrix W
-    W = np.exp(-sq_dists / (2 * sigma))
-    
-    # 4. Compute the symmetric normalized diffusion matrix
-    # D^(-1/2) * W * D^(-1/2) shares the same eigenvalues as the random walk matrix D^(-1) * W
-    d = np.sum(W, axis=1)
-    d_inv_sqrt = np.power(d, -0.5)
-    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.0
-    
-    # Matrix multiplication for D^(-1/2) * W * D^(-1/2)
-    M_sym = W * np.outer(d_inv_sqrt, d_inv_sqrt)
-    
-    # 5. Extract the top k eigenvalues
-    # eigh is optimized for symmetric matrices. It returns eigenvalues in ascending order.
-    # We take the last k eigenvalues (which are the largest) and reverse them.
-    eigenvalues, _ = eigh(M_sym, subset_by_index=[len(data)-k, len(data)-1])
-    top_k_evals = eigenvalues[::-1]
-    
-    return top_k_evals
-
-def spectral_distance(real_data, synth_data, k=10):
-    """
-    Computes the Spectral Distance between the diffusion operators of real and synthetic data.
-    
-    Parameters:
-    - real_data: np.ndarray (e.g., FPC score matrix or pre-embedding features)
-    - synth_data: np.ndarray 
-    - k: int, number of top eigenvalues to compare.
-    
-    Returns:
-    - spectral_dist: float, Mean Squared Error between the top k eigenvalues.
-    """
-    # Ensure k does not exceed the number of samples
-    k = min(k, len(real_data), len(synth_data))
-    
-    # Calculate eigenvalues
-    real_evals = get_diffusion_eigenvalues(real_data, k=k)
-    synth_evals = get_diffusion_eigenvalues(synth_data, k=k)
-    
-    # Compute the distance (MSE) between the eigenvalue spectra
-    spectral_dist = np.mean((real_evals - synth_evals) ** 2)
-    
-    return spectral_dist
 
 ### Mode Collapse Metrics
 def precision_recall(real_features, synthetic_features, k=3):

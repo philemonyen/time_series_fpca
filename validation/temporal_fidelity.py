@@ -99,45 +99,62 @@ if __name__ == "__main__":
             #### ------------ Evaluation ------------ ####
             # Baseline: Raw Data
             raw_unaligned_data_wasserstein_score = wasserstein(real_data, flaw_data)
+            raw_unaligned_data_autocorrelation_score = autocorrelation_score(real_data, flaw_data)
+            raw_unaligned_data_dtw_score = dtw_score(real_data, flaw_data)
+            raw_unaligned_data_warping_l2_score = sample_wise_warping_l2(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
 
             # Baseline: PCA, FFT, Wavelet
             unaligned_pca_wasserstein_score = wasserstein(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
             unaligned_fft_wasserstein_score = wasserstein(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
             unaligned_wavelet_wasserstein_score = wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
+            unaligned_pca_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
+            unaligned_fft_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
+            unaligned_wavelet_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
+
 
             # Warping Function: Wasserstein
             warping_wasserstein_score = wasserstein(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
-            
+            warping_mahalanobis_score = sample_wise_mahalanobis(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+
             # FPCA: Wasserstein
             fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
+            fpca_mahalanobis_score = sample_wise_mahalanobis(real_scores, flaw_scores)
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             dmap_js_divergence = grid_js_divergence(real_dmap_embedding, flaw_dmap_embedding)
-            dmap_spectral_distance = spectral_distance(real_dmap_embedding, flaw_dmap_embedding)
+            dmap_mahalanobis_score = sample_wise_mahalanobis(real_dmap_embedding, flaw_dmap_embedding)
 
             # UMAP: JS Divergence, MMD, discriminator score
             umap_js_divergence = grid_js_divergence(real_umap_embedding, flaw_umap_embedding)
+            umap_mahalanobis_score = sample_wise_mahalanobis(real_umap_embedding, flaw_umap_embedding)
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}
             # Raw Unaligned Data: Wasserstein Score
             result_tracking[scenario][key]['raw_unaligned_data_wasserstein_score'] = raw_unaligned_data_wasserstein_score
-            
+            result_tracking[scenario][key]['raw_unaligned_data_autocorrelation_score'] = raw_unaligned_data_autocorrelation_score
+            result_tracking[scenario][key]['raw_unaligned_data_dtw_score'] = raw_unaligned_data_dtw_score
+            result_tracking[scenario][key]['raw_unaligned_data_warping_l2_score'] = raw_unaligned_data_warping_l2_score
             # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet: Wasserstein Score
             result_tracking[scenario][key]['unaligned_pca_wasserstein_score'] = unaligned_pca_wasserstein_score
             result_tracking[scenario][key]['unaligned_fft_wasserstein_score'] = unaligned_fft_wasserstein_score
             result_tracking[scenario][key]['unaligned_wavelet_wasserstein_score'] = unaligned_wavelet_wasserstein_score
+            result_tracking[scenario][key]['unaligned_pca_mahalanobis_score'] = unaligned_pca_mahalanobis_score
+            result_tracking[scenario][key]['unaligned_fft_mahalanobis_score'] = unaligned_fft_mahalanobis_score
+            result_tracking[scenario][key]['unaligned_wavelet_mahalanobis_score'] = unaligned_wavelet_mahalanobis_score
             
             # FPCA: Wasserstein
             result_tracking[scenario][key]['fpca_wasserstein_score'] = fpca_wasserstein_score
+            result_tracking[scenario][key]['fpca_mahalanobis_score'] = fpca_mahalanobis_score
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             result_tracking[scenario][key]['dmap_js_divergence'] = dmap_js_divergence
-            result_tracking[scenario][key]['dmap_spectral_distance'] = dmap_spectral_distance
+            result_tracking[scenario][key]['dmap_mahalanobis_score'] = dmap_mahalanobis_score
 
             # UMAP: JS Divergence, MMD, discriminator score
             result_tracking[scenario][key]['umap_js_divergence'] = umap_js_divergence
-
+            result_tracking[scenario][key]['umap_mahalanobis_score'] = umap_mahalanobis_score   
+            
             plt.scatter(real_umap_embedding[:, 0], real_umap_embedding[:, 1], label="Real")
             plt.scatter(flaw_umap_embedding[:, 0], flaw_umap_embedding[:, 1], label="Flaw")
             plt.title(f"UMAP Embedding: {scenario}, Flaw Scale: {key}")

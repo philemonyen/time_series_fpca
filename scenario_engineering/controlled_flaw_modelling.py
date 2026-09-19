@@ -37,13 +37,12 @@ def gaussian_noise(real_data, landmarks, noise_multiplier=0.05):
     return synthetic_data, landmarks
 
 ### Distributional Flawed Scenario Engineering ###
-def mode_collapse(real_data, real_landmarks, num_modes=5, spike_ratio=0.50):
+def mode_collapse(real_data, real_landmarks, num_modes=5, spike_ratio=0.50, max_spike_size=1000):
     """
     Creates a dataset exhibiting mode collapse by forcing regional density spikes 
     while maintaining a fixed total population size.
     """
     total_real_samples = real_data.shape[0]
-    max_spike_size = total_real_samples // num_modes
     
     # Calculate partition sizes
     spike_size = int(max_spike_size * spike_ratio)

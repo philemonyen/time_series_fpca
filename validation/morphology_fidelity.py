@@ -96,55 +96,77 @@ if __name__ == "__main__":
             #### ------------ Evaluation ------------ ####
             ## Baseline: Raw unaligned Data
             raw_unaligned_data_wasserstein_score = wasserstein(real_data, flaw_data)
+            raw_unlaligned_data_mahalanobis_score = sample_wise_mahalanobis(real_data, flaw_data)
 
             ## Baseline: Raw aligned Data
             raw_aligned_data_wasserstein_score = wasserstein(real_fd.data_matrix.squeeze(), flaw_fd.data_matrix.squeeze())
+            raw_aligned_data_mahalanobis_score = sample_wise_mahalanobis(real_fd.data_matrix.squeeze(), flaw_fd.data_matrix.squeeze())
 
             ## Baseline Transformation on Unaligned Data: PCA, FFT, Wavelet
             unaligned_pca_wasserstein_score = wasserstein(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
             unaligned_fft_wasserstein_score = wasserstein(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
             unaligned_wavelet_wasserstein_score = wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
+            unaligned_pca_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
+            unaligned_fft_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
+            unaligned_wavelet_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
 
             ## Baseline Transformation on Aligned Data: PCA, FFT, Wavelet
             aligned_pca_wasserstein_score = wasserstein(real_aligned_pca_scores, flaw_aligned_pca_scores)
             aligned_fft_wasserstein_score = wasserstein(real_aligned_fft_scores, flaw_aligned_fft_scores)
             aligned_wavelet_wasserstein_score = wasserstein(real_aligned_wavelet_scores, flaw_aligned_wavelet_scores)
+            aligned_pca_mahalanobis_score = sample_wise_mahalanobis(real_aligned_pca_scores, flaw_aligned_pca_scores)
+            aligned_fft_mahalanobis_score = sample_wise_mahalanobis(real_aligned_fft_scores, flaw_aligned_fft_scores)
+            aligned_wavelet_mahalanobis_score = sample_wise_mahalanobis(real_aligned_wavelet_scores, flaw_aligned_wavelet_scores)
 
             ## FPC Score: Frechet Score, Wasserstein Score, MMD Score, LMR
             fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
+            fpca_mahalanobis_score = sample_wise_mahalanobis(real_scores, flaw_scores)
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             dmap_js_divergence = grid_js_divergence(real_dmap_embedding, flaw_dmap_embedding)
+            dmap_mahalanobis_score = sample_wise_mahalanobis(real_dmap_embedding, flaw_dmap_embedding)
 
             # UMAP: JS Divergence, MMD, discriminator score
             umap_js_divergence = grid_js_divergence(real_umap_embedding, flaw_umap_embedding)
+            umap_mahalanobis_score = sample_wise_mahalanobis(real_umap_embedding, flaw_umap_embedding)
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}
             # Raw Unaligned Data: Frechet Score, Wasserstein Score, MMD Score
             result_tracking[scenario][key]['raw_unaligned_data_wasserstein_score'] = raw_unaligned_data_wasserstein_score
-            
+            result_tracking[scenario][key]['raw_unlaligned_data_mahalanobis_score'] = raw_unlaligned_data_mahalanobis_score
+
             # Raw Aligned Data: Frechet Score, Wasserstein Score, MMD Score
             result_tracking[scenario][key]['raw_aligned_data_wasserstein_score'] = raw_aligned_data_wasserstein_score
-            
+            result_tracking[scenario][key]['raw_aligned_data_mahalanobis_score'] = raw_aligned_data_mahalanobis_score
+
             # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet: Frechet Score, Wasserstein Score, MMD Score
             result_tracking[scenario][key]['unaligned_pca_wasserstein_score'] = unaligned_pca_wasserstein_score
             result_tracking[scenario][key]['unaligned_fft_wasserstein_score'] = unaligned_fft_wasserstein_score
             result_tracking[scenario][key]['unaligned_wavelet_wasserstein_score'] = unaligned_wavelet_wasserstein_score
-            
+            result_tracking[scenario][key]['unaligned_pca_mahalanobis_score'] = unaligned_pca_mahalanobis_score
+            result_tracking[scenario][key]['unaligned_fft_mahalanobis_score'] = unaligned_fft_mahalanobis_score
+            result_tracking[scenario][key]['unaligned_wavelet_mahalanobis_score'] = unaligned_wavelet_mahalanobis_score
+
             # Baseline Transformations on Aligned Data: PCA, FFT, Wavelet: Frechet Score, Wasserstein Score, MMD Score
             result_tracking[scenario][key]['aligned_pca_wasserstein_score'] = aligned_pca_wasserstein_score
             result_tracking[scenario][key]['aligned_fft_wasserstein_score'] = aligned_fft_wasserstein_score
             result_tracking[scenario][key]['aligned_wavelet_wasserstein_score'] = aligned_wavelet_wasserstein_score
-            
+            result_tracking[scenario][key]['aligned_pca_mahalanobis_score'] = aligned_pca_mahalanobis_score
+            result_tracking[scenario][key]['aligned_fft_mahalanobis_score'] = aligned_fft_mahalanobis_score
+            result_tracking[scenario][key]['aligned_wavelet_mahalanobis_score'] = aligned_wavelet_mahalanobis_score
+
             # FPCA: Wasserstein
             result_tracking[scenario][key]['fpca_wasserstein_score'] = fpca_wasserstein_score
+            result_tracking[scenario][key]['fpca_mahalanobis_score'] = fpca_mahalanobis_score
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance
             result_tracking[scenario][key]['dmap_js_divergence'] = dmap_js_divergence
+            result_tracking[scenario][key]['dmap_mahalanobis_score'] = dmap_mahalanobis_score
 
             # UMAP: JS Divergence, MMD, discriminator score
             result_tracking[scenario][key]['umap_js_divergence'] = umap_js_divergence
+            result_tracking[scenario][key]['umap_mahalanobis_score'] = umap_mahalanobis_score
 
             plt.scatter(real_umap_embedding[:, 0], real_umap_embedding[:, 1], label="Real")
             plt.scatter(flaw_umap_embedding[:, 0], flaw_umap_embedding[:, 1], label="Flaw")

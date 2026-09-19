@@ -83,7 +83,7 @@ def get_flaw_scales(scenario):
         
     elif scenario == "mode_collapse_vary_spike_ratio":
         # Fraction of the synthetic set copied from a single template.
-        return [0.3, 0.4, 0.5, 0.6, 0.7]
+        return [0.2, 0.3, 0.4, 0.5, 0.6]
         
     elif scenario == "segment_leaking":
         # Fraction of synthetic records that receive a one-beat real splice
@@ -263,61 +263,61 @@ if __name__ == "__main__":
     with open(save_path / "substitute_fd.pkl", "wb") as f:
         pickle.dump(substitute_fd, f)
 
-    # # Morphological Flawed Dataset Creation
-    # oversmoothing_morphology_dataset, oversmoothing_temporal_dataset = oversmoothing_creation(real_data, real_landmarks)
-    # with open(morphology_path / "oversmoothing_dataset.pkl", "wb") as f:
-    #     pickle.dump(oversmoothing_morphology_dataset, f)
-    # with open(temporal_path / "oversmoothing_dataset.pkl", "wb") as f:
-    #     pickle.dump(oversmoothing_temporal_dataset, f)
-    # gaussian_noise_morphology_dataset, gaussian_noise_temporal_dataset = gaussian_noise_creation(real_data, real_landmarks)
-    # with open(morphology_path / "gaussian_noise_dataset.pkl", "wb") as f:
-    #     pickle.dump(gaussian_noise_morphology_dataset, f)
-    # with open(temporal_path / "gaussian_noise_dataset.pkl", "wb") as f:
-    #     pickle.dump(gaussian_noise_temporal_dataset, f)
-    # baseline_drift_morphology_dataset, baseline_drift_temporal_dataset = baseline_drift_creation(real_data, real_landmarks)
-    # with open(morphology_path / "baseline_drift_dataset.pkl", "wb") as f:
-    #     pickle.dump(baseline_drift_morphology_dataset, f)
-    # with open(temporal_path / "baseline_drift_dataset.pkl", "wb") as f:
-    #     pickle.dump(baseline_drift_temporal_dataset, f)
-    # spurious_transient_morphology_dataset, spurious_transient_temporal_dataset = spurious_transient_creation(real_data, real_landmarks)
-    # with open(morphology_path / "spurious_transient_dataset.pkl", "wb") as f:
-    #     pickle.dump(spurious_transient_morphology_dataset, f)
-    # with open(temporal_path / "spurious_transient_dataset.pkl", "wb") as f:
-    #     pickle.dump(spurious_transient_temporal_dataset, f)
+    # Morphological Flawed Dataset Creation
+    oversmoothing_morphology_dataset, oversmoothing_temporal_dataset = oversmoothing_creation(real_data, real_landmarks)
+    with open(morphology_path / "oversmoothing_dataset.pkl", "wb") as f:
+        pickle.dump(oversmoothing_morphology_dataset, f)
+    with open(temporal_path / "oversmoothing_dataset.pkl", "wb") as f:
+        pickle.dump(oversmoothing_temporal_dataset, f)
+    gaussian_noise_morphology_dataset, gaussian_noise_temporal_dataset = gaussian_noise_creation(real_data, real_landmarks)
+    with open(morphology_path / "gaussian_noise_dataset.pkl", "wb") as f:
+        pickle.dump(gaussian_noise_morphology_dataset, f)
+    with open(temporal_path / "gaussian_noise_dataset.pkl", "wb") as f:
+        pickle.dump(gaussian_noise_temporal_dataset, f)
+    baseline_drift_morphology_dataset, baseline_drift_temporal_dataset = baseline_drift_creation(real_data, real_landmarks)
+    with open(morphology_path / "baseline_drift_dataset.pkl", "wb") as f:
+        pickle.dump(baseline_drift_morphology_dataset, f)
+    with open(temporal_path / "baseline_drift_dataset.pkl", "wb") as f:
+        pickle.dump(baseline_drift_temporal_dataset, f)
+    spurious_transient_morphology_dataset, spurious_transient_temporal_dataset = spurious_transient_creation(real_data, real_landmarks)
+    with open(morphology_path / "spurious_transient_dataset.pkl", "wb") as f:
+        pickle.dump(spurious_transient_morphology_dataset, f)
+    with open(temporal_path / "spurious_transient_dataset.pkl", "wb") as f:
+        pickle.dump(spurious_transient_temporal_dataset, f)
 
-    # # Distributional Flawed Dataset Creation
-    # mode_collapse_vary_modes_morphology_dataset, mode_collapse_vary_modes_temporal_dataset = mode_collapse_vary_modes_creation(real_data, real_landmarks)
-    # with open(morphology_path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
-    #     pickle.dump(mode_collapse_vary_modes_morphology_dataset, f)
-    # with open(temporal_path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
-    #     pickle.dump(mode_collapse_vary_modes_temporal_dataset, f)
-    # mode_collapse_vary_spike_ratio_morphology_dataset, mode_collapse_vary_spike_ratio_temporal_dataset = mode_collapse_vary_spike_ratio_creation(real_data, real_landmarks)
-    # with open(morphology_path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
-    #     pickle.dump(mode_collapse_vary_spike_ratio_morphology_dataset, f)
-    # with open(temporal_path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
-    #     pickle.dump(mode_collapse_vary_spike_ratio_temporal_dataset, f)
+    # Distributional Flawed Dataset Creation
+    mode_collapse_vary_modes_morphology_dataset, mode_collapse_vary_modes_temporal_dataset = mode_collapse_vary_modes_creation(real_data, real_landmarks)
+    with open(morphology_path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
+        pickle.dump(mode_collapse_vary_modes_morphology_dataset, f)
+    with open(temporal_path / "mode_collapse_vary_modes_dataset.pkl", "wb") as f:
+        pickle.dump(mode_collapse_vary_modes_temporal_dataset, f)
+    mode_collapse_vary_spike_ratio_morphology_dataset, mode_collapse_vary_spike_ratio_temporal_dataset = mode_collapse_vary_spike_ratio_creation(real_data, real_landmarks)
+    with open(morphology_path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
+        pickle.dump(mode_collapse_vary_spike_ratio_morphology_dataset, f)
+    with open(temporal_path / "mode_collapse_vary_spike_ratio_dataset.pkl", "wb") as f:
+        pickle.dump(mode_collapse_vary_spike_ratio_temporal_dataset, f)
 
-    # # Temporal Flawed Dataset Creation
-    # phase_shift_morphology_dataset, phase_shift_temporal_dataset = phase_shift_creation(real_data, real_landmarks)
-    # with open(morphology_path / "phase_shift_dataset.pkl", "wb") as f:
-    #     pickle.dump(phase_shift_morphology_dataset, f)
-    # with open(temporal_path / "phase_shift_dataset.pkl", "wb") as f:
-    #     pickle.dump(phase_shift_temporal_dataset, f)
-    # time_distortion_morphology_dataset, time_distortion_temporal_dataset = time_distortion_creation(real_data, real_landmarks)
-    # with open(morphology_path / "time_distortion_dataset.pkl", "wb") as f:
-    #     pickle.dump(time_distortion_morphology_dataset, f)
-    # with open(temporal_path / "time_distortion_dataset.pkl", "wb") as f:
-    #     pickle.dump(time_distortion_temporal_dataset, f)
-    # phase_jitter_morphology_dataset, phase_jitter_temporal_dataset = phase_jitter_creation(real_data, real_landmarks)
-    # with open(morphology_path / "phase_jitter_dataset.pkl", "wb") as f:
-    #     pickle.dump(phase_jitter_morphology_dataset, f)
-    # with open(temporal_path / "phase_jitter_dataset.pkl", "wb") as f:
-    #     pickle.dump(phase_jitter_temporal_dataset, f)
-    # loss_of_autocorrelation_morphology_dataset, loss_of_autocorrelation_temporal_dataset = loss_of_autocorrelation_creation(real_data, real_landmarks)
-    # with open(morphology_path / "loss_of_autocorrelation_dataset.pkl", "wb") as f:
-    #     pickle.dump(loss_of_autocorrelation_morphology_dataset, f)
-    # with open(temporal_path / "loss_of_autocorrelation_dataset.pkl", "wb") as f:
-    #     pickle.dump(loss_of_autocorrelation_temporal_dataset, f)
+    # Temporal Flawed Dataset Creation
+    phase_shift_morphology_dataset, phase_shift_temporal_dataset = phase_shift_creation(real_data, real_landmarks)
+    with open(morphology_path / "phase_shift_dataset.pkl", "wb") as f:
+        pickle.dump(phase_shift_morphology_dataset, f)
+    with open(temporal_path / "phase_shift_dataset.pkl", "wb") as f:
+        pickle.dump(phase_shift_temporal_dataset, f)
+    time_distortion_morphology_dataset, time_distortion_temporal_dataset = time_distortion_creation(real_data, real_landmarks)
+    with open(morphology_path / "time_distortion_dataset.pkl", "wb") as f:
+        pickle.dump(time_distortion_morphology_dataset, f)
+    with open(temporal_path / "time_distortion_dataset.pkl", "wb") as f:
+        pickle.dump(time_distortion_temporal_dataset, f)
+    phase_jitter_morphology_dataset, phase_jitter_temporal_dataset = phase_jitter_creation(real_data, real_landmarks)
+    with open(morphology_path / "phase_jitter_dataset.pkl", "wb") as f:
+        pickle.dump(phase_jitter_morphology_dataset, f)
+    with open(temporal_path / "phase_jitter_dataset.pkl", "wb") as f:
+        pickle.dump(phase_jitter_temporal_dataset, f)
+    loss_of_autocorrelation_morphology_dataset, loss_of_autocorrelation_temporal_dataset = loss_of_autocorrelation_creation(real_data, real_landmarks)
+    with open(morphology_path / "loss_of_autocorrelation_dataset.pkl", "wb") as f:
+        pickle.dump(loss_of_autocorrelation_morphology_dataset, f)
+    with open(temporal_path / "loss_of_autocorrelation_dataset.pkl", "wb") as f:
+        pickle.dump(loss_of_autocorrelation_temporal_dataset, f)
 
     # Privacy Flawed Dataset Creation
     if real_fd.data_matrix.shape[0] >= substitute_fd.data_matrix.shape[0]:
