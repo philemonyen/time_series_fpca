@@ -6,8 +6,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
-from transformation.fda.fpca import fpca_hyperparameter_tuning, fpca_with_param
+from transformation.fda.fpca import fpca_hyperparameter_tuning, fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
 from transformation.baseline.fft import *
@@ -31,11 +30,6 @@ if __name__ == "__main__":
     with open(f"data/validation/real_segments.pkl", "rb") as f:
         real_segments, real_landmarks = pickle.load(f)
 
-    # Baseline Transformations: PCA, FFT, Wavelet
-    real_unaligned_pca_scores, real_unaligned_pca_model = pca(real_data)
-    real_unaligned_fft_scores, real_unaligned_fft_basis = fft(real_data, k=10)
-    real_unaligned_wavelet_scores, real_unaligned_wavelet_basis = wavelet(real_data, [(22.5, 45.0, (11.25, 22.5), (5.6, 11.25), (2.8, 5.6))])
-
     # Extract Warping Functions and Apply FPCA
     aligned_real_segments, real_warping_ = landmark_registration(real_segments, real_landmarks)
     n_basis = int(real_warping_.data_matrix.shape[1] / 2)
@@ -43,6 +37,8 @@ if __name__ == "__main__":
     smoothed_real, _, _, _ = basis_smoothing_with_lambda(real_warping_, lambda_, n_basis, domain_range)
     n_components = fpca_hyperparameter_tuning(smoothed_real)
     real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(smoothed_real, n_components)
+    real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
+    real_umap = tune_umap(real_scores)
 
     # Plot FPCA outcomes
     real_mean.plot()
@@ -56,7 +52,6 @@ if __name__ == "__main__":
         plt.xlabel("Time")
         plt.savefig(f"images/fidelity_val/temporal/Warping_Real_Component_{i}.png")
         plt.close()
-
 
     scenarios = get_temporal_scenarios() + get_morphology_scenarios() + get_distributional_scenarios()
     result_tracking = {}
@@ -72,12 +67,6 @@ if __name__ == "__main__":
         result_tracking[scenario] = {}
 
         for key, (flaw_data, flaw_segments, segment_landmarks) in datasets.items():
-            #### ------------ Transformations ------------ ####
-            # Baseline Transformations: PCA, FFT, Wavelet
-            flaw_unaligned_pca_scores = pca_transform(flaw_data, real_unaligned_pca_model)
-            flaw_unaligned_fft_scores = fft_transform(flaw_data, real_unaligned_fft_basis)
-            flaw_unaligned_wavelet_scores = wavelet_transform(flaw_data, real_unaligned_wavelet_basis)
-
             # FPCA
             aligned_flaw, flaw_warping_ = landmark_registration(flaw_segments, segment_landmarks)
             n_basis = int(flaw_warping_.data_matrix.shape[1] / 2)
@@ -86,72 +75,47 @@ if __name__ == "__main__":
             flaw_scores = real_fpca_.transform(smoothed_flaw)
 
             # Diffusion Map
-            real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
-            real_dmap_evals = real_dmap.evals_
             real_dmap_embedding = real_dmap.transform(real_scores)
             flaw_dmap_embedding = real_dmap.transform(flaw_scores)
 
             # UMAP
-            real_umap = tune_umap(real_scores)
             real_umap_embedding = real_umap.transform(real_scores)
             flaw_umap_embedding = real_umap.transform(flaw_scores)
 
             #### ------------ Evaluation ------------ ####
-            # Baseline: Raw Data
-            raw_unaligned_data_wasserstein_score = wasserstein(real_data, flaw_data)
-            raw_unaligned_data_autocorrelation_score = autocorrelation_score(real_data, flaw_data)
-            raw_unaligned_data_dtw_score = dtw_score(real_data, flaw_data)
-            raw_unaligned_data_warping_l2_score = sample_wise_warping_l2(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            # Warping Function: L2 Distance, Wasserstein Distance, Mahalanobis Distance
+            # raw_unaligned_data_warping_l2_score = sample_wise_warping_l2(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            # warping_wasserstein_score = wasserstein(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
+            # warping_mahalanobis_score = sample_wise_mahalanobis(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
 
-            # Baseline: PCA, FFT, Wavelet
-            unaligned_pca_wasserstein_score = wasserstein(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_fft_wasserstein_score = wasserstein(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_wavelet_wasserstein_score = wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
-            unaligned_pca_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_fft_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_wavelet_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
-
-
-            # Warping Function: Wasserstein
-            warping_wasserstein_score = wasserstein(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
-            warping_mahalanobis_score = sample_wise_mahalanobis(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
-
-            # FPCA: Wasserstein
+            # FPCA: Wasserstein Distance, Mahalanobis Distance
             fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
             fpca_mahalanobis_score = sample_wise_mahalanobis(real_scores, flaw_scores)
 
-            # Diffusion Map: JS Divergence, MMD, Spectral Distance
+            # Diffusion Map: JS Divergence, Mahalanobis Distance
             dmap_js_divergence = grid_js_divergence(real_dmap_embedding, flaw_dmap_embedding)
             dmap_mahalanobis_score = sample_wise_mahalanobis(real_dmap_embedding, flaw_dmap_embedding)
 
-            # UMAP: JS Divergence, MMD, discriminator score
+            # UMAP: JS Divergence, Mahalanobis Distance
             umap_js_divergence = grid_js_divergence(real_umap_embedding, flaw_umap_embedding)
             umap_mahalanobis_score = sample_wise_mahalanobis(real_umap_embedding, flaw_umap_embedding)
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}
-            # Raw Unaligned Data: Wasserstein Score
-            result_tracking[scenario][key]['raw_unaligned_data_wasserstein_score'] = raw_unaligned_data_wasserstein_score
-            result_tracking[scenario][key]['raw_unaligned_data_autocorrelation_score'] = raw_unaligned_data_autocorrelation_score
-            result_tracking[scenario][key]['raw_unaligned_data_dtw_score'] = raw_unaligned_data_dtw_score
-            result_tracking[scenario][key]['raw_unaligned_data_warping_l2_score'] = raw_unaligned_data_warping_l2_score
-            # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet: Wasserstein Score
-            result_tracking[scenario][key]['unaligned_pca_wasserstein_score'] = unaligned_pca_wasserstein_score
-            result_tracking[scenario][key]['unaligned_fft_wasserstein_score'] = unaligned_fft_wasserstein_score
-            result_tracking[scenario][key]['unaligned_wavelet_wasserstein_score'] = unaligned_wavelet_wasserstein_score
-            result_tracking[scenario][key]['unaligned_pca_mahalanobis_score'] = unaligned_pca_mahalanobis_score
-            result_tracking[scenario][key]['unaligned_fft_mahalanobis_score'] = unaligned_fft_mahalanobis_score
-            result_tracking[scenario][key]['unaligned_wavelet_mahalanobis_score'] = unaligned_wavelet_mahalanobis_score
+            # Warping Function: L2 Distance, Wasserstein Distance, Mahalanobis Distance
+            # result_tracking[scenario][key]['raw_unaligned_data_warping_l2_score'] = raw_unaligned_data_warping_l2_score
+            # result_tracking[scenario][key]['warping_wasserstein_score'] = warping_wasserstein_score
+            # result_tracking[scenario][key]['warping_mahalanobis_score'] = warping_mahalanobis_score
             
-            # FPCA: Wasserstein
+            # FPCA: Wasserstein Distance, Mahalanobis Distance
             result_tracking[scenario][key]['fpca_wasserstein_score'] = fpca_wasserstein_score
             result_tracking[scenario][key]['fpca_mahalanobis_score'] = fpca_mahalanobis_score
-
-            # Diffusion Map: JS Divergence, MMD, Spectral Distance
+            
+            # Diffusion Map: JS Divergence, Mahalanobis Distance
             result_tracking[scenario][key]['dmap_js_divergence'] = dmap_js_divergence
             result_tracking[scenario][key]['dmap_mahalanobis_score'] = dmap_mahalanobis_score
 
-            # UMAP: JS Divergence, MMD, discriminator score
+            # UMAP: JS Divergence, Mahalanobis Distance
             result_tracking[scenario][key]['umap_js_divergence'] = umap_js_divergence
             result_tracking[scenario][key]['umap_mahalanobis_score'] = umap_mahalanobis_score   
             
@@ -163,6 +127,6 @@ if __name__ == "__main__":
             plt.close()
     
     # Save Result Tracking
-    with open(f"images/fidelity_val/temporal/fidelity_val_temporal_result.json", "w") as f:
+    with open(f"images/fidelity_val/fidelity_val_temporal_result.json", "w") as f:
         json.dump(result_tracking, f)
 

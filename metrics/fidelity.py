@@ -24,7 +24,12 @@ def autocorrelation_score(real_data, synthetic_data, max_lag=24):
     """
     # Ensure inputs have the same shape
     assert real_data.shape == synthetic_data.shape, "Data shapes must match."
-    
+
+    if real_data.ndim == 2:
+        n, l = real_data.shape
+        real_data = real_data.reshape(n, l, 1)
+        synthetic_data = synthetic_data.reshape(n, l, 1)
+
     N, T, F = real_data.shape
     
     # Cap max_lag if the sequence length is shorter than the requested lag
@@ -103,25 +108,43 @@ def sample_wise_warping_l2(real_warping_funcs, synth_warping_funcs):
     # Return the expected temporal precision
     return np.mean(nearest_neighbor_distances)
 
+def _as_2d_samples(X):
+    X = np.asarray(X, dtype=float)
+    if X.ndim == 1:
+        return X.reshape(-1, 1)
+    if X.ndim > 2:
+        return X.reshape(X.shape[0], -1)
+    return X
+
+
 # Spatial Metrics
 def sample_wise_mahalanobis(real_fpc_scores, synth_fpc_scores):
     """
-    Calculates the sample-wise morphological fidelity using Mahalanobis distance 
-    in the amplitude FPC space.
+    Mean nearest-neighbor Mahalanobis distance from synthetic to real samples.
+
+    Mathematically the same as cdist(..., metric='mahalanobis') + min over real
+    neighbors. SciPy's Mahalanobis kernel is O(N^2 D^2) per pair; whitening
+    first makes the search Euclidean, O(N^2 D), which is required for raw ECG.
+    Rank-deficient covariances are handled by dropping near-zero eigenvalues,
+    matching np.linalg.pinv.
     """
-    # Calculate the covariance matrix of the real FPC scores and its inverse
-    # Using pseudoinverse (pinv) prevents crashes if the FPC space is rank-deficient
-    cov_matrix = np.cov(real_fpc_scores, rowvar=False)
-    inv_cov_matrix = np.linalg.pinv(cov_matrix)
-    
-    # Calculate pairwise Mahalanobis distances between all synthetic and real samples
-    distances = cdist(synth_fpc_scores, real_fpc_scores, metric='mahalanobis', VI=inv_cov_matrix)
-    
-    # Extract the minimum distance (nearest real neighbor) for each synthetic sample
-    nearest_neighbor_distances = np.min(distances, axis=1)
-    
-    # Return the expected nearest-neighbor precision
-    return np.mean(nearest_neighbor_distances)
+    real = _as_2d_samples(real_fpc_scores)
+    synth = _as_2d_samples(synth_fpc_scores)
+
+    cov_matrix = np.atleast_2d(np.cov(real, rowvar=False))
+    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+    eigenvalues = np.maximum(eigenvalues, 0.0)
+    cutoff = 1e-12 * (eigenvalues[-1] if eigenvalues[-1] > 0 else 1.0)
+    supported = eigenvalues > cutoff
+    if not np.any(supported):
+        return 0.0
+    scale = 1.0 / np.sqrt(eigenvalues[supported])
+    whitener = eigenvectors[:, supported] * scale
+
+    nn = NearestNeighbors(n_neighbors=1, metric="euclidean", algorithm="brute")
+    nn.fit(real @ whitener)
+    nearest_neighbor_distances, _ = nn.kneighbors(synth @ whitener, return_distance=True)
+    return float(np.mean(nearest_neighbor_distances))
 
 def wasserstein(X, Y, eps=1e-6):
     """

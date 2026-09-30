@@ -1,14 +1,10 @@
-import os
-os.environ["NUMBA_NUM_THREADS"] = "1"
-
 import json
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from skfda.representation.grid import FDataGrid
-from preprocess.fpca_preprocess import basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
-from transformation.fda.fpca import fpca_with_param
+from transformation.fda.fpca import fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
 from scenario_engineering.dataset_creation import get_distributional_scenarios, get_morphology_scenarios, get_temporal_scenarios
@@ -33,30 +29,20 @@ if __name__ == "__main__":
         real_fd = pickle.load(f)
     n_sample, n_timepoints, n_channel = real_fd.data_matrix.shape
     n_basis = int(n_timepoints / 2)
-
-    # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet
-    real_unaligned_pca_scores, real_unaligned_pca_model = pca(real_data)
-    real_unaligned_fft_scores, real_unaligned_fft_basis = fft(real_data, k=10)
-    real_unaligned_wavelet_scores, real_unaligned_wavelet_basis = wavelet(real_data, [(22.5, 45.0, (11.25, 22.5), (5.6, 11.25), (2.8, 5.6))])
-
-    # Baseline Transformations on Aligned Data: PCA, FFT, Wavelet
-    real_aligned_pca_scores, real_aligned_pca_model = pca(real_fd.data_matrix.squeeze())
-    real_aligned_fft_scores, real_aligned_fft_basis = fft(real_fd.data_matrix.squeeze(), k=10)
-    real_aligned_wavelet_scores, real_aligned_wavelet_basis = wavelet(real_fd.data_matrix.squeeze(), [(22.5, 45.0, (11.25, 22.5), (5.6, 11.25), (2.8, 5.6))])
-
+    
     # FPCA on real aligned data
     lambda_ = basis_smoothing_hyperparameter_tuning(real_fd, n_basis, domain_range)
     real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)
     real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(real_fd_smooth, n_components)
     real_fd_grid = real_fpca_.components_.grid_points[0]
+    
+    real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
+    real_umap = tune_umap(real_scores)
 
     scenarios = get_distributional_scenarios() + get_morphology_scenarios() + get_temporal_scenarios()
     result_tracking = {}
     for scenario in scenarios:
         # Result save path
-        save_path = f"images/fidelity_val/distributional/{scenario}/"
-        path=Path(save_path)
-        path.mkdir(parents=True, exist_ok=True)
 
         with open(f"data/validation/morphology/{scenario}_dataset.pkl", "rb") as f:
             datasets = pickle.load(f)
@@ -64,17 +50,6 @@ if __name__ == "__main__":
         result_tracking[scenario] = {}
 
         for key, (flaw_data, flaw_fd) in datasets.items():
-            #### ------------ Transformations ------------ ####
-            # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet
-            flaw_unaligned_pca_scores = pca_transform(flaw_data, real_unaligned_pca_model)
-            flaw_unaligned_fft_scores = fft_transform(flaw_data, real_unaligned_fft_basis)
-            flaw_unaligned_wavelet_scores = wavelet_transform(flaw_data, real_unaligned_wavelet_basis)
-
-            # Baseline Transformations on Aligned Data: PCA, FFT, Wavelet
-            flaw_aligned_pca_scores = pca_transform(flaw_fd.data_matrix.squeeze(), real_aligned_pca_model)
-            flaw_aligned_fft_scores = fft_transform(flaw_fd.data_matrix.squeeze(), real_aligned_fft_basis)
-            flaw_aligned_wavelet_scores = wavelet_transform(flaw_fd.data_matrix.squeeze(), real_aligned_wavelet_basis)
-
             # FPCA
             lambda_ = basis_smoothing_hyperparameter_tuning(flaw_fd, n_basis, domain_range)
             flaw_fd_smooth, _, _, _ = basis_smoothing_with_lambda(flaw_fd, lambda_, n_basis, domain_range)
@@ -83,33 +58,14 @@ if __name__ == "__main__":
             flaw_scores = real_fpca_.transform(flaw_fd_smooth)
 
             # Diffusion Map
-            real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
-            real_dmap_evals = real_dmap.evals_
             real_dmap_embedding = real_dmap.transform(real_scores)
             flaw_dmap_embedding = real_dmap.transform(flaw_scores)
 
             # UMAP
-            real_umap = tune_umap(real_scores)
             real_umap_embedding = real_umap.transform(real_scores)
             flaw_umap_embedding = real_umap.transform(flaw_scores)
 
             #### ------------ Evaluation ------------ ####
-            ## Baseline: Raw unaligned Data
-            raw_unaligned_precision, raw_unaligned_recall = precision_recall(real_data, flaw_data)
-
-            ## Baseline: Raw aligned Data
-            raw_aligned_precision, raw_aligned_recall = precision_recall(real_fd.data_matrix.squeeze(), flaw_fd.data_matrix.squeeze())
-
-            ## Baseline Transformation on Unaligned Data: PCA, FFT, Wavelet
-            unaligned_pca_precision, unaligned_pca_recall = precision_recall(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_fft_precision, unaligned_fft_recall = precision_recall(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_wavelet_precision, unaligned_wavelet_recall = precision_recall(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
-
-            ## Baseline Transformation on Aligned Data: PCA, FFT, Wavelet
-            aligned_pca_precision, aligned_pca_recall = precision_recall(real_aligned_pca_scores, flaw_aligned_pca_scores)
-            aligned_fft_precision, aligned_fft_recall = precision_recall(real_aligned_fft_scores, flaw_aligned_fft_scores)
-            aligned_wavelet_precision, aligned_wavelet_recall = precision_recall(real_aligned_wavelet_scores, flaw_aligned_wavelet_scores)
-            
             ## FPC Score:
             fpca_precision, fpca_recall = precision_recall(real_scores, flaw_scores)
 
@@ -121,30 +77,6 @@ if __name__ == "__main__":
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}
-            # Raw Unaligned Data: Precision, Recall
-            result_tracking[scenario][key]['raw_unaligned_data_precision'] = raw_unaligned_precision
-            result_tracking[scenario][key]['raw_unaligned_data_recall'] = raw_unaligned_recall
-            
-            # Raw Aligned Data: Precision, Recall
-            result_tracking[scenario][key]['raw_aligned_data_precision'] = raw_aligned_precision
-            result_tracking[scenario][key]['raw_aligned_data_recall'] = raw_aligned_recall
-            
-            # Baseline Transformations on Unaligned Data: PCA, FFT, Wavelet: Precision, Recall
-            result_tracking[scenario][key]['unaligned_pca_precision'] = unaligned_pca_precision
-            result_tracking[scenario][key]['unaligned_pca_recall'] = unaligned_pca_recall
-            result_tracking[scenario][key]['unaligned_fft_precision'] = unaligned_fft_precision
-            result_tracking[scenario][key]['unaligned_fft_recall'] = unaligned_fft_recall
-            result_tracking[scenario][key]['unaligned_wavelet_precision'] = unaligned_wavelet_precision
-            result_tracking[scenario][key]['unaligned_wavelet_recall'] = unaligned_wavelet_recall
-            
-            # Baseline Transformations on Aligned Data: PCA, FFT, Wavelet: Precision, Recall
-            result_tracking[scenario][key]['aligned_pca_precision'] = aligned_pca_precision
-            result_tracking[scenario][key]['aligned_pca_recall'] = aligned_pca_recall
-            result_tracking[scenario][key]['aligned_fft_precision'] = aligned_fft_precision
-            result_tracking[scenario][key]['aligned_fft_recall'] = aligned_fft_recall
-            result_tracking[scenario][key]['aligned_wavelet_precision'] = aligned_wavelet_precision
-            result_tracking[scenario][key]['aligned_wavelet_recall'] = aligned_wavelet_recall
-            
             # FPCA: Precision, Recall
             result_tracking[scenario][key]['fpca_precision'] = fpca_precision
             result_tracking[scenario][key]['fpca_recall'] = fpca_recall
@@ -158,5 +90,5 @@ if __name__ == "__main__":
             result_tracking[scenario][key]['umap_recall'] = umap_recall
     
     # SaveResult Tracking
-    with open(f"images/fidelity_val/distributional/fidelity_val_distributional_result.json", "w") as f:
+    with open(f"images/fidelity_val/fidelity_val_distributional_result.json", "w") as f:
         json.dump(result_tracking, f)

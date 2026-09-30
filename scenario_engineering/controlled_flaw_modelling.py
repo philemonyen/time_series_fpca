@@ -6,7 +6,7 @@ from scipy.spatial.distance import mahalanobis
 
 
 ### Morphological Flawed Scenario Engineering ###
-def oversmoothing(data, landmarks, window_size=4):
+def oversmoothing(data, landmarks, clinical_landmarks, window_size=4):
     """
     Simulates a generative model that fails to capture high-frequency variance
     by over-smoothing the synthetic functional data.
@@ -18,9 +18,9 @@ def oversmoothing(data, landmarks, window_size=4):
     # The 'nearest' mode handles edge effects cleanly
     smoothed_data = uniform_filter1d(data, size=window_size, axis=1, mode='nearest')
     
-    return smoothed_data, landmarks
+    return smoothed_data, landmarks, clinical_landmarks
 
-def gaussian_noise(real_data, landmarks, noise_multiplier=0.05):
+def gaussian_noise(real_data, landmarks, clinical_landmarks=None, noise_multiplier=0.05):
     """
     Adds Gaussian noise scaled to the active (non-padded) ECG amplitude.
 
@@ -34,10 +34,10 @@ def gaussian_noise(real_data, landmarks, noise_multiplier=0.05):
 
     synthetic_data = real_data + noise
 
-    return synthetic_data, landmarks
+    return synthetic_data, landmarks, clinical_landmarks
 
 ### Distributional Flawed Scenario Engineering ###
-def mode_collapse(real_data, real_landmarks, num_modes=5, spike_ratio=0.50, max_spike_size=1000):
+def mode_collapse(real_data, real_landmarks, real_clinical_landmarks, num_modes=5, spike_ratio=0.50, max_spike_size=1000):
     """
     Creates a dataset exhibiting mode collapse by forcing regional density spikes 
     while maintaining a fixed total population size.
@@ -53,11 +53,13 @@ def mode_collapse(real_data, real_landmarks, num_modes=5, spike_ratio=0.50, max_
     mode_indices = np.random.choice(total_real_samples, size=num_modes, replace=False)
     templates = real_data[mode_indices]
     templates_landmarks = real_landmarks[mode_indices]
+    templates_clinical_landmarks = real_clinical_landmarks[mode_indices]
     
     # 2. Duplicate them to create the regional spikes
     collapsed_data = np.repeat(templates, spike_size, axis=0)
     collapsed_landmarks = np.repeat(templates_landmarks, spike_size, axis=0)
-
+    collapsed_clinical_landmarks = np.repeat(templates_clinical_landmarks, spike_size, axis=0)
+    
     # Add microscopic noise to the collapsed samples so they aren't perfectly identical
     micro_noise = np.random.normal(0, np.std(real_data, axis=0) * 0.005, size=collapsed_data.shape)
     collapsed_data += micro_noise
@@ -68,20 +70,22 @@ def mode_collapse(real_data, real_landmarks, num_modes=5, spike_ratio=0.50, max_
     
     rest_data = real_data[rest_indices]
     rest_landmarks = real_landmarks[rest_indices]
+    rest_clinical_landmarks = real_clinical_landmarks[rest_indices]
     
     # 4. Combine the collapsed data and the remaining diverse data
     synthetic_data = np.vstack((collapsed_data, rest_data))
     synthetic_landmarks = np.vstack((collapsed_landmarks, rest_landmarks))
-
+    synthetic_clinical_landmarks = np.vstack((collapsed_clinical_landmarks, rest_clinical_landmarks))
     
     # 5. Shuffle the dataset to randomly distribute the spikes throughout the arrays
     shuffle_idx = np.random.permutation(total_real_samples)
     synthetic_data = synthetic_data[shuffle_idx]
     synthetic_landmarks = synthetic_landmarks[shuffle_idx]
+    synthetic_clinical_landmarks = synthetic_clinical_landmarks[shuffle_idx]
 
-    return synthetic_data, synthetic_landmarks
+    return synthetic_data, synthetic_landmarks, synthetic_clinical_landmarks
 
-def baseline_drift(data, landmarks, duration_sec=10.0, drift_freq=0.2, amplitude_fraction=0.5):
+def baseline_drift(data, landmarks, clinical_landmarks, duration_sec=10.0, drift_freq=0.2, amplitude_fraction=0.5):
     """
     Simulates a low-frequency wandering baseline.
     
@@ -106,10 +110,11 @@ def baseline_drift(data, landmarks, duration_sec=10.0, drift_freq=0.2, amplitude
 
     # Time domain is untouched, copy landmarks directly
     distorted_landmarks = _copy_landmark_table(landmarks)
-    
-    return distorted_data, distorted_landmarks
+    distorted_clinical_landmarks = _copy_landmark_table(clinical_landmarks)
 
-def spurious_transient(data, landmarks, amplitude_fraction=2.0, num_spikes=1):
+    return distorted_data, distorted_landmarks, distorted_clinical_landmarks
+
+def spurious_transient(data, landmarks, clinical_landmarks, amplitude_fraction=2.0, num_spikes=1):
     """
     Simulates spurious transients (hallucinated sharp spikes or notches).
     
@@ -120,7 +125,8 @@ def spurious_transient(data, landmarks, amplitude_fraction=2.0, num_spikes=1):
     n_samples, t_steps = data.shape
     distorted_data = np.empty_like(data)
     distorted_landmarks = _copy_landmark_table(landmarks)
-    
+    distorted_clinical_landmarks = _copy_landmark_table(clinical_landmarks)
+
     for i in range(n_samples):
         sig_std = np.std(data[i])
         distorted_data[i] = data[i].copy()
@@ -141,7 +147,7 @@ def spurious_transient(data, landmarks, amplitude_fraction=2.0, num_spikes=1):
             spike_amplitude = polarity * sig_std * amplitude_fraction
             distorted_data[i] += spike_amplitude * spike_shape
             
-    return distorted_data, distorted_landmarks
+    return distorted_data, distorted_landmarks, distorted_clinical_landmarks
 
 # Temporal Flawed Scenario Engineering ###
 def _copy_landmark_table(landmarks):
@@ -173,8 +179,14 @@ def _map_valid_indices(marks, mapper, t_steps):
     align_ecg drops unused beat slots with `R < 0`. Clipping or interpolating
     those -1 sentinels maps them to 0, which then becomes a fake last beat
     and yields an empty trim (`start_idx > end_idx`).
+    Accepts (n_beats, 3) P/R/T tables and (n_beats, 5) P/Q/R/S/T tables.
     """
-    original = _as_beat_triplets(marks)
+    original = np.asarray(marks)
+    if original.ndim != 2:
+        raise ValueError(
+            "Expected per-record landmarks with shape (n_beats, n_points); "
+            f"got shape {original.shape}."
+        )
     values = original.astype(float, copy=False).reshape(-1)
     warped = original.copy().reshape(-1)
     valid = values >= 0
@@ -199,7 +211,7 @@ def _power_warp_indices(marks, alpha, t_steps):
 
     return _map_valid_indices(marks, _warp, t_steps)
 
-def time_distortion(data, landmarks, alpha=1.03):
+def time_distortion(data, landmarks, clinical_landmarks, alpha=1.03):
     """
     Simulates global time distortion using a power-law warp on raw traces.
 
@@ -216,12 +228,14 @@ def time_distortion(data, landmarks, alpha=1.03):
         distorted_data[i] = np.interp(gamma_t, grid, data[i])
 
     distorted_landmarks = _copy_landmark_table(landmarks)
+    distorted_clinical_landmarks = _copy_landmark_table(clinical_landmarks)
     for i in range(n_samples):
         distorted_landmarks[i] = _power_warp_indices(landmarks[i], alpha, t_steps)
+        distorted_clinical_landmarks[i] = _power_warp_indices(clinical_landmarks[i], alpha, t_steps)
 
-    return distorted_data, distorted_landmarks
+    return distorted_data, distorted_landmarks, distorted_clinical_landmarks
 
-def phase_shift(data, landmarks, shift_fraction=0.05):
+def phase_shift(data, landmarks, clinical_landmarks, shift_fraction=0.05):
     """
     Simulates a systematic phase shift of the internal beats on raw traces.
 
@@ -234,6 +248,7 @@ def phase_shift(data, landmarks, shift_fraction=0.05):
 
     distorted_data = np.empty_like(data)
     distorted_landmarks = _copy_landmark_table(landmarks)
+    distorted_clinical_landmarks = _copy_landmark_table(clinical_landmarks)
 
     for i in range(n_samples):
         marks = np.asarray(landmarks[i], dtype=float)
@@ -273,10 +288,11 @@ def phase_shift(data, landmarks, shift_fraction=0.05):
         query = np.clip(gamma(grid), 0.0, float(t_steps - 1))
         distorted_data[i] = np.interp(query, grid, data[i])
         distorted_landmarks[i] = _map_valid_indices(landmarks[i], inv_gamma, t_steps)
+        distorted_clinical_landmarks[i] = _map_valid_indices(clinical_landmarks[i], inv_gamma, t_steps)
 
-    return distorted_data, distorted_landmarks
+    return distorted_data, distorted_landmarks, distorted_clinical_landmarks
 
-def phase_jitter(data, landmarks, jitter_fraction=0.05):
+def phase_jitter(data, landmarks, clinical_landmarks, jitter_fraction=0.05):
     """
     Simulates random phase jitter (desynchronization) of internal beats.
 
@@ -289,6 +305,7 @@ def phase_jitter(data, landmarks, jitter_fraction=0.05):
 
     distorted_data = np.empty_like(data)
     distorted_landmarks = _copy_landmark_table(landmarks)
+    distorted_clinical_landmarks = _copy_landmark_table(clinical_landmarks)
 
     for i in range(n_samples):
         marks = np.asarray(landmarks[i], dtype=float)
@@ -320,10 +337,11 @@ def phase_jitter(data, landmarks, jitter_fraction=0.05):
         query = np.clip(gamma(grid), 0.0, float(t_steps - 1))
         distorted_data[i] = np.interp(query, grid, data[i])
         distorted_landmarks[i] = _map_valid_indices(landmarks[i], inv_gamma, t_steps)
+        distorted_clinical_landmarks[i] = _map_valid_indices(clinical_landmarks[i], inv_gamma, t_steps)
 
-    return distorted_data, distorted_landmarks
+    return distorted_data, distorted_landmarks, distorted_clinical_landmarks
 
-def loss_of_autocorrelation(data, landmarks, shuffle_ratio=0.5):
+def loss_of_autocorrelation(data, landmarks, clinical_landmarks, shuffle_ratio=0.5):
     """
     Destroys long-term temporal correlation by shuffling a proportion of heartbeats.
     
@@ -334,7 +352,8 @@ def loss_of_autocorrelation(data, landmarks, shuffle_ratio=0.5):
     n_samples, t_steps = data.shape
     distorted_data = np.zeros_like(data)
     distorted_landmarks = _copy_landmark_table(landmarks)
-    
+    distorted_clinical_landmarks = _copy_landmark_table(clinical_landmarks)
+
     for i in range(n_samples):
         marks = np.asarray(landmarks[i], dtype=float)
         r_peaks = _r_peak_indices(marks, t_steps).astype(int)
@@ -384,48 +403,4 @@ def loss_of_autocorrelation(data, landmarks, shuffle_ratio=0.5):
         else:
             distorted_data[i] = reassembled
 
-    return distorted_data, distorted_landmarks
-
-### Privacy Flawed Scenario Engineering ###
-def privacy_leaking_data(real_fpcs, real_scores, eigenvalues, portion_ratio, leaking_ratio, safe_noise_scale=5.0):
-    """
-    Creates a privacy-flawed synthetic dataset while maintaining functional fidelity.
-    
-    `real_fpcs`: Eigenfunctions of the real data (Shape: [num_components, timepoints]).
-    `real_scores`: FPC scores of the real data (Shape: [sample_size, num_components]).
-    `eigenvalues`: The variance of each FPC (Shape: [num_components]).
-    `portion_ratio`: Ratio of the dataset to be compromised (Penetration Rate).
-    `leaking_ratio`: Noise multiplier for the compromised data (Leakage Severity).
-    `safe_noise_scale`: Noise multiplier for the "safe" background data.
-    """
-    sample_size = real_scores.shape[0]
-    num_components = real_scores.shape[1]
-    
-    # Standard deviation of each principal component
-    std_devs = np.sqrt(eigenvalues)
-
-    # 1. Generate Safe Synthetic Base (High Perturbation on Scores)
-    # We add large noise strictly proportional to each component's natural variance
-    safe_noise = np.random.normal(loc=0.0, scale=safe_noise_scale * std_devs, size=real_scores.shape)
-    safe_scores = real_scores + safe_noise
-    
-    # Reconstruct safe data using the pristine eigenfunctions
-    synthetic_data = safe_scores @ real_fpcs 
-
-    # 2. Select a portion of the real data to be leaked
-    leaking_size = int(sample_size * portion_ratio)
-    selected_indices = np.random.choice(sample_size, size=leaking_size, replace=False)
-    
-    # 3. Generate Compromised Data (Low Perturbation on Scores)
-    # We add slight noise based on the leaking_ratio to simulate memorization
-    leaking_noise = np.random.normal(loc=0.0, scale=leaking_ratio * std_devs, size=(leaking_size, num_components))
-    compromised_scores = real_scores[selected_indices] + leaking_noise
-    
-    # Reconstruct compromised data using the pristine eigenfunctions
-    leaking_data = compromised_scores @ real_fpcs
-
-    # 4. Put together and shuffle
-    synthetic_data[selected_indices] = leaking_data
-    np.random.shuffle(synthetic_data)
-
-    return synthetic_data, compromised_scores
+    return distorted_data, distorted_landmarks, distorted_clinical_landmarks

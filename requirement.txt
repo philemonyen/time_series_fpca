@@ -10,5 +10,6 @@ umap-learn
 fastdtw
 statsmodels
 neurokit2
-skfda
+scikit-fda
+FDApy
 xgboost
