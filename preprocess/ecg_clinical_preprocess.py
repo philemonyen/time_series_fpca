@@ -25,7 +25,7 @@ def _median_samples(distances, default):
 def _pad_feature(rows):
     rows = [np.asarray(row, dtype=float) for row in rows]
     max_beats = max((row.size for row in rows), default=0)
-    padded = np.full((len(rows), max_beats), np.nan, dtype=float)
+    padded = np.full((len(rows), max_beats), 0, dtype=float)
     for i, row in enumerate(rows):
         if row.size:
             padded[i, :row.size] = row
@@ -274,7 +274,7 @@ def get_clinical_features(signals, sr):
             
             # Calculate the absolute area using the Trapezoidal rule
             # Since dx = 1 / sr, the area is natively measured in voltage * seconds
-            area = np.trapz(np.abs(adjusted_segment), dx=1/sr)
+            area = np.trapezoid(np.abs(adjusted_segment), dx=1/sr)
             qrs_area.append(area)
 
         if not pr:
@@ -433,7 +433,7 @@ def get_clinical_features_from_pqrst(signals, pqrst, sr):
             qrs_segment = cleaned[q_on:q_off + 1]
             baseline = np.linspace(cleaned[q_on], cleaned[q_off], len(qrs_segment))
             adjusted_segment = qrs_segment - baseline
-            qrs_area.append(np.trapz(np.abs(adjusted_segment), dx=1 / sr))
+            qrs_area.append(np.trapezoid(np.abs(adjusted_segment), dx=1 / sr))
 
         if not pr:
             features.append(_empty_features())
