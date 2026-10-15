@@ -2,8 +2,7 @@ import pickle
 from pathlib import Path
 from scenario_engineering.controlled_flaw_modelling import *
 from preprocess.ptbxl_preprocess import get_sr, load_dataset, get_landmarks, align_ecg, extract_ecg_sliding_windows
-from preprocess.ecg_clinical_preprocess import get_pqrst
-from transformation.fda.fpca import fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
+from preprocess.ecg_clinical_preprocess import get_pqrst, get_clinical_features_from_pqrst
 from skfda import FDataGrid
 from sklearn.model_selection import train_test_split
 
@@ -12,7 +11,8 @@ def get_morphology_scenarios():
         "oversmoothing", 
         "gaussian_noise",
         "baseline_drift", 
-        "spurious_transient"
+        "spurious_transient",
+        "loss_of_autocorrelation", 
     ]
 
 def get_temporal_scenarios():
@@ -20,7 +20,6 @@ def get_temporal_scenarios():
         "phase_shift", 
         "time_distortion", 
         "phase_jitter", 
-        "loss_of_autocorrelation", 
     ]
 
 def get_distributional_scenarios():
@@ -100,11 +99,12 @@ def oversmoothing_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for window in get_flaw_scales("oversmoothing"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = oversmoothing(data, landmarks, clinical_landmarks, window)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[window] = flaw_data, align_fd
         temporal_eval[window] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[window] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[window] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def gaussian_noise_creation(data, landmarks, clinical_landmarks):
@@ -113,11 +113,12 @@ def gaussian_noise_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for noise_multiplier in get_flaw_scales("gaussian_noise"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = gaussian_noise(data, landmarks, clinical_landmarks, noise_multiplier)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[noise_multiplier] = flaw_data, align_fd
         temporal_eval[noise_multiplier] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[noise_multiplier] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[noise_multiplier] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def baseline_drift_creation(data, landmarks, clinical_landmarks):
@@ -126,11 +127,12 @@ def baseline_drift_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for amplitude_fraction in get_flaw_scales("baseline_drift"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = baseline_drift(data, landmarks, clinical_landmarks, amplitude_fraction=amplitude_fraction)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[amplitude_fraction] = flaw_data, align_fd
         temporal_eval[amplitude_fraction] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[amplitude_fraction] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[amplitude_fraction] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def spurious_transient_creation(data, landmarks, clinical_landmarks):
@@ -139,11 +141,12 @@ def spurious_transient_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for amplitude_fraction in get_flaw_scales("spurious_transient"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = spurious_transient(data, landmarks, clinical_landmarks, amplitude_fraction=amplitude_fraction)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[amplitude_fraction] = flaw_data, align_fd
         temporal_eval[amplitude_fraction] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[amplitude_fraction] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[amplitude_fraction] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 # Distributional Flawed Dataset Creation 
@@ -153,11 +156,12 @@ def mode_collapse_vary_modes_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for num_modes in get_flaw_scales("mode_collapse_vary_modes"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = mode_collapse(data, landmarks, clinical_landmarks, num_modes=num_modes)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[num_modes] = flaw_data, align_fd
         temporal_eval[num_modes] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[num_modes] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[num_modes] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def mode_collapse_vary_spike_ratio_creation(data, landmarks, clinical_landmarks):
@@ -166,11 +170,12 @@ def mode_collapse_vary_spike_ratio_creation(data, landmarks, clinical_landmarks)
     clinical_eval = {}
     for spike_ratio in get_flaw_scales("mode_collapse_vary_spike_ratio"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = mode_collapse(data, landmarks, clinical_landmarks, num_modes=1, spike_ratio=spike_ratio)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[spike_ratio] = flaw_data, align_fd
         temporal_eval[spike_ratio] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[spike_ratio] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[spike_ratio] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 # Temporal Flawed Dataset Creation 
@@ -180,11 +185,12 @@ def phase_shift_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for shift_fraction in get_flaw_scales("phase_shift"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = phase_shift(data, landmarks, clinical_landmarks, shift_fraction=shift_fraction)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[shift_fraction] = flaw_data, align_fd
         temporal_eval[shift_fraction] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[shift_fraction] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[shift_fraction] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def time_distortion_creation(data, landmarks, clinical_landmarks):
@@ -193,11 +199,12 @@ def time_distortion_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for alpha in get_flaw_scales("time_distortion"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = time_distortion(data, landmarks, clinical_landmarks, alpha=alpha)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[alpha] = flaw_data, align_fd
         temporal_eval[alpha] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[alpha] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[alpha] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def phase_jitter_creation(data, landmarks, clinical_landmarks):
@@ -206,11 +213,12 @@ def phase_jitter_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for jitter_fraction in get_flaw_scales("phase_jitter"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = phase_jitter(data, landmarks, clinical_landmarks, jitter_fraction=jitter_fraction)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[jitter_fraction] = flaw_data, align_fd
         temporal_eval[jitter_fraction] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[jitter_fraction] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[jitter_fraction] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 def loss_of_autocorrelation_creation(data, landmarks, clinical_landmarks):
@@ -219,11 +227,12 @@ def loss_of_autocorrelation_creation(data, landmarks, clinical_landmarks):
     clinical_eval = {}
     for shuffle_ratio in get_flaw_scales("loss_of_autocorrelation"):
         flaw_data, flaw_landmarks, flaw_clinical_landmarks = loss_of_autocorrelation(data, landmarks, clinical_landmarks, shuffle_ratio=shuffle_ratio)
+        flaw_clinical_features = get_clinical_features_from_pqrst(flaw_data, flaw_clinical_landmarks, sr=sr)
         align_fd = align_ecg(flaw_data, flaw_landmarks)
         flaw_segments, segment_landmarks = extract_ecg_sliding_windows(flaw_data, flaw_landmarks)
         morphological_eval[shuffle_ratio] = flaw_data, align_fd
         temporal_eval[shuffle_ratio] = flaw_data, flaw_segments, segment_landmarks
-        clinical_eval[shuffle_ratio] = flaw_data, flaw_clinical_landmarks
+        clinical_eval[shuffle_ratio] = flaw_data, flaw_clinical_features
     return morphological_eval, temporal_eval, clinical_eval
 
 if __name__ == "__main__":
@@ -253,9 +262,11 @@ if __name__ == "__main__":
     real_data = real_all[:n_data//2]
     real_landmarks = landmarks[:n_data//2]
     real_clinical_landmarks = clinical_landmarks[:n_data//2]
+    real_clinical_features = get_clinical_features_from_pqrst(real_data, real_clinical_landmarks, sr=sr)
     substitute_data = real_all[n_data//2:]
     substitute_landmarks = landmarks[n_data//2:]
     substitute_clinical_landmarks = clinical_landmarks[n_data//2:]
+    substitute_clinical_features = get_clinical_features_from_pqrst(substitute_data, substitute_clinical_landmarks, sr=sr)
 
     # Original Unaligned and AlignedDataset
     with open(save_path / "real_data.pkl", "wb") as f:
@@ -265,6 +276,8 @@ if __name__ == "__main__":
         pickle.dump(real_fd, f)
     with open(clinical_path / "real_clinical_landmarks.pkl", "wb") as f:
         pickle.dump(real_clinical_landmarks, f)
+    with open(clinical_path / "real_clinical_features.pkl", "wb") as f:
+        pickle.dump(real_clinical_features, f)
 
     # Original Segments 
     real_segments, real_segment_landmarks = extract_ecg_sliding_windows(real_data, real_landmarks)

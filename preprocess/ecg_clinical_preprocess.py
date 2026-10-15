@@ -34,19 +34,6 @@ def _pad_feature(rows):
 def _empty_features():
     return tuple(np.array([], dtype=float) for _ in range(6))
 
-def _r_peaks_from_landmarks(cleaned, marks, min_separation):
-    """Landmarks whose absolute amplitude dominates the surrounding minimum RR."""
-    amplitudes = np.abs(cleaned[marks])
-    peaks = []
-    for i, idx in enumerate(marks):
-        near = np.abs(marks - idx) <= min_separation
-        if amplitudes[i] < amplitudes[near].max():
-            continue
-        if peaks and int(idx) - peaks[-1] < min_separation:
-            continue
-        peaks.append(int(idx))
-    return np.asarray(peaks, dtype=int)
-
 def get_pqrst(signals, sr):
     """Beat-wise (P, Q, R, S, T) landmarks.
 
@@ -302,11 +289,12 @@ def get_clinical_features_from_pqrst(signals, pqrst, sr):
     Uses the same intervals, imputation, and amplitude measurements as
     get_clinical_features. Each recording is a (n_beats, 5) table of
     (P onset, QRS onset, R peak, QRS offset, T offset) indices, with -1 for
-    missing marks. The R peak of a beat is the landmark with the largest
-    absolute amplitude within the minimum RR. QRS onset and P onset are the
-    preceding landmarks, and QRS offset and T offset are the following ones.
-    Missing or implausibly timed marks are imputed from that recording's
-    median timing, with the same first-beat and last-beat drops.
+    missing marks. The columns are taken as ground truth: each row with a
+    valid R peak is one beat, and its marks are read from the same row, so
+    interval features depend only on the landmarks and the signal only
+    enters through r_amp and qrs_area. Missing or implausibly timed marks are
+    imputed from that recording's median timing, with the same first-beat
+    and last-beat drops.
 
     Parameters
     ----------
@@ -338,10 +326,13 @@ def get_clinical_features_from_pqrst(signals, pqrst, sr):
 
     features = []
     for signal, marks in zip(signals, pqrst):
-        signal = np.asarray(signal, dtype=float)
         marks = np.asarray(marks, dtype=int).ravel()
-        marks = np.unique(marks[(marks >= 0) & (marks < signal.size)])
-        if marks.size == 0:
+        marks = np.pad(marks, (0, -marks.size % 5), constant_values=-1)
+        signal = np.asarray(signal, dtype=float)
+        beats = marks.reshape(-1, 5)
+        beats = beats[(beats[:, 2] >= 0) & (beats[:, 2] < signal.size)]
+        beats = beats[np.argsort(beats[:, 2], kind="stable")]
+        if beats.size == 0:
             features.append(_empty_features())
             continue
 
@@ -350,26 +341,17 @@ def get_clinical_features_from_pqrst(signals, pqrst, sr):
         except Exception:
             cleaned = signal
 
-        r_peaks = _r_peaks_from_landmarks(cleaned, marks, min_rr)
-        if r_peaks.size == 0:
-            features.append(_empty_features())
-            continue
-
-        others = marks[~np.isin(marks, r_peaks)]
+        r_peaks = beats[:, 2]
         pr_dists, qon_dists, qoff_dists, rt_dists = [], [], [], []
-        for r in r_peaks:
-            q_on = closest_before(r, others)
-            if q_on is not None and 0 < r - q_on <= max_qon:
+        for p, q_on, r, q_off, t in beats:
+            if q_on >= 0 and 0 < r - q_on <= max_qon:
                 qon_dists.append(r - q_on)
-                p = closest_before(q_on, others)
-                if p is not None and 0 < q_on - p <= max_pr:
+                if p >= 0 and 0 < q_on - p <= max_pr:
                     pr_dists.append(q_on - p)
-            q_off = closest_after(r, others)
-            if q_off is not None and 0 < q_off - r <= max_qoff:
+            if q_off >= 0 and 0 < q_off - r <= max_qoff:
                 qoff_dists.append(q_off - r)
-                t = closest_after(q_off, others)
-                if t is not None and 0 < t - r <= max_rt:
-                    rt_dists.append(t - r)
+            if t >= 0 and 0 < t - r <= max_rt:
+                rt_dists.append(t - r)
 
         rr_gaps = np.diff(r_peaks)
         plausible_rr = rr_gaps[(rr_gaps >= min_rr) & (rr_gaps <= max_rr)]
@@ -381,30 +363,26 @@ def get_clinical_features_from_pqrst(signals, pqrst, sr):
 
         pr, rr, qrs, qt, r_amp, qrs_area = [], [], [], [], [], []
         n_samples = len(cleaned)
-        for idx, r in enumerate(r_peaks):
+        for idx, (p, q_on, r, q_off, t) in enumerate(beats):
             is_first = idx == 0
             is_last = idx == len(r_peaks) - 1
 
-            q_on = closest_before(r, others)
-            if q_on is None or not (0 < r - q_on <= max_qon):
+            if q_on < 0 or not (0 < r - q_on <= max_qon):
                 if is_first:
                     continue
                 q_on = r - med_qon
 
-            p = closest_before(q_on, others)
-            if p is None or not (0 < q_on - p <= max_pr):
+            if p < 0 or not (0 < q_on - p <= max_pr):
                 if is_first:
                     continue
                 p = q_on - med_pr
 
-            q_off = closest_after(r, others)
-            if q_off is None or not (0 < q_off - r <= max_qoff):
+            if q_off < 0 or not (0 < q_off - r <= max_qoff):
                 if is_last:
                     continue
                 q_off = r + med_qoff
 
-            t = closest_after(q_off, others)
-            if t is None or not (0 < t - r <= max_rt):
+            if t < 0 or not (0 < t - r <= max_rt):
                 if is_last:
                     continue
                 t = r + med_rt

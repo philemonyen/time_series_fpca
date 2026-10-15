@@ -57,7 +57,6 @@ if __name__ == "__main__":
             raw_unaligned_data_wasserstein_score = wasserstein(real_data, flaw_data)
             raw_unlaligned_data_mahalanobis_score = sample_wise_mahalanobis(real_data, flaw_data)
             raw_unaligned_data_autocorrelation_score = autocorrelation_score(real_data, flaw_data)
-            raw_unaligned_data_dtw_score = dtw_score(real_data, flaw_data)
             raw_unaligned_precision, raw_unaligned_recall = precision_recall(real_data, flaw_data)
 
             # # Baseline: Raw aligned Data
@@ -88,7 +87,6 @@ if __name__ == "__main__":
 
             # Raw Unaligned Data: Autocorrelation Score, DTW Score
             result_tracking[scenario][key]['raw_unaligned_data_autocorrelation_score'] = raw_unaligned_data_autocorrelation_score
-            result_tracking[scenario][key]['raw_unaligned_data_dtw_score'] = raw_unaligned_data_dtw_score
             
             # Raw Unaligned Data: Precision, Recall
             result_tracking[scenario][key]['raw_unaligned_data_precision'] = raw_unaligned_precision

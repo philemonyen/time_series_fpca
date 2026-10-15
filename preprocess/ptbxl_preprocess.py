@@ -1,4 +1,5 @@
 import ast
+import pickle
 import wfdb
 import pandas as pd
 import numpy as np
@@ -10,9 +11,12 @@ from skfda.representation import FDataGrid
 # https://physionet.org/content/ptb-xl/1.0.3/
 
 #### ---- Global Parameters ---- ####
-path = "../data/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
+path = "data/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/"
 sampling_rate=100
 diagnostics = np.array(['NORM', 'MI', 'STTC', 'CD', 'HYP'])
+
+# ptbxl_database.csv columns saved alongside each ECG, in this order
+demographic_columns = ['ecg_id', 'patient_id', 'age', 'sex', 'height', 'weight', 'strat_fold']
 
 def get_diagnostics():
     return diagnostics
@@ -20,11 +24,23 @@ def get_diagnostics():
 def get_sr():
     return sampling_rate
 
+def get_demographic_columns():
+    return demographic_columns
+
 
 #### ---- Load PTB-XL Dataset ---- ####
+_diagnostic_statements = None
+
+def _get_diagnostic_statements():
+    """scp_statements.csv restricted to diagnostic codes, read once per process."""
+    global _diagnostic_statements
+    if _diagnostic_statements is None:
+        agg_df = pd.read_csv(path+'scp_statements.csv', index_col=0)
+        _diagnostic_statements = agg_df[agg_df.diagnostic == 1]
+    return _diagnostic_statements
+
 def aggregate_diagnostic(y_dic):
-    agg_df = pd.read_csv(path+'scp_statements.csv', index_col=0)
-    agg_df = agg_df[agg_df.diagnostic == 1]
+    agg_df = _get_diagnostic_statements()
     tmp = []
     for key in y_dic.keys():
         if key in agg_df.index:
@@ -33,9 +49,16 @@ def aggregate_diagnostic(y_dic):
 
 def get_data():
     """
-    Load PTB-XL dataset into .npy files
+    Load PTB-XL dataset into .npy files, with the demographics of each record
+    written to a parallel .pkl file.
+
+    For every diagnostic/sampling rate pair this writes
+    `{diagnostic}_{sampling_rate}.npy`, shaped (n_records, n_leads, n_samples),
+    and `{diagnostic}_{sampling_rate}_demographics.pkl`, a list of n_records
+    lists holding `demographic_columns` in order. Row i of the pickle is the
+    record in row i of the array.
     """
-    save_path = "../data"
+    save_path = "data"
     Y = pd.read_csv(path+'ptbxl_database.csv', index_col='ecg_id')
     Y.scp_codes = Y.scp_codes.apply(lambda x: ast.literal_eval(x))
     Y['diagnostic_superclass'] = Y.scp_codes.apply(aggregate_diagnostic)
@@ -45,15 +68,20 @@ def get_data():
 
     # Work with normal ECG now
     for sampling_rate in [100, 500]:
+        filename_col = 'filename_lr' if sampling_rate == 100 else 'filename_hr'
         for diagnostic in diagnostics:
-            if sampling_rate == 100:
-                data = [wfdb.rdsamp(path+f) for f in Y.filename_lr if Y.loc[Y.filename_lr == f].diagnostic_superclass.values[0] == [diagnostic]]
-            else:
-                data = [wfdb.rdsamp(path+f) for f in Y.filename_hr if Y.loc[Y.filename_hr == f].diagnostic_superclass.values[0] == [diagnostic]]
+            # keep records whose only superclass is this diagnostic, in ecg_id order
+            records = Y[Y.diagnostic_superclass.apply(lambda sc, d=diagnostic: sc == [d])]
+
+            data = [wfdb.rdsamp(path+f) for f in records[filename_col]]
             data = np.array([signal for signal, meta in data])
             data = data.transpose(0, 2, 1) # (n_records, n_leads, n_samples)
 
             np.save(save_path + f"/{diagnostic}_{sampling_rate}.npy", data)
+
+            demographics = records.reset_index()[demographic_columns].to_numpy(dtype=object).tolist()
+            with open(save_path + f"/{diagnostic}_{sampling_rate}_demographics.pkl", "wb") as f:
+                pickle.dump(demographics, f)
 
 #### ---- Load Dataset ---- ####
 def load_dataset(diagnostic, sampling_rate, lead=None):
@@ -61,6 +89,11 @@ def load_dataset(diagnostic, sampling_rate, lead=None):
     if lead is not None:
         data = data[:, lead, :]
     return data
+
+def load_demographics(diagnostic, sampling_rate):
+    """Demographics of `load_dataset(diagnostic, sampling_rate)`, row for row."""
+    with open(f"data/{diagnostic}_{sampling_rate}_demographics.pkl", "rb") as f:
+        return pickle.load(f)
 
 def load_synthetic_dataset(diagnostic, lead):
     data = np.load("data/synthetic_final.npy")
@@ -270,22 +303,22 @@ def extract_ecg_sliding_windows(signals, landmarks, window_beats=8, points_per_w
     return fd, global_landmarks
 
 if __name__ == "__main__":
-    diagnostic = "NORM"
-    lead = 1
-    sr = get_sr()
+    # diagnostic = "NORM"
+    # lead = 1
+    # sr = get_sr()
 
-    # Get Real Data
-    real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
-    landmarks = get_landmarks(real_all, sr)
-    fd = align_ecg(real_all, landmarks)
-    # fd, global_landmarks = extract_ecg_sliding_windows(real_all, landmarks)
-    print(fd.data_matrix.shape) # Morphology: (6804, 2200, 1), Temporal: (29891, 1000, 1)
-    fd.plot()
-    plt.xlabel("Time (s)")
-    plt.ylabel("Amplitude (mV)")
-    plt.title("Processed ECG")
-    plt.show()
-
+    # # Get Real Data
+    # real_all = load_dataset(diagnostic=diagnostic, sampling_rate=sr, lead=lead)
+    # landmarks = get_landmarks(real_all, sr)
+    # fd = align_ecg(real_all, landmarks)
+    # # fd, global_landmarks = extract_ecg_sliding_windows(real_all, landmarks)
+    # print(fd.data_matrix.shape) # Morphology: (6804, 2200, 1), Temporal: (29891, 1000, 1)
+    # fd.plot()
+    # plt.xlabel("Time (s)")
+    # plt.ylabel("Amplitude (mV)")
+    # plt.title("Processed ECG")
+    # plt.show()
+    get_data()
     
 
     

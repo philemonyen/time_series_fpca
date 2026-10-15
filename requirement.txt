@@ -4,12 +4,8 @@ scikit-learn
 matplotlib
 pandas
 wfdb
-torch
-tabulate
 umap-learn
-fastdtw
 statsmodels
 neurokit2
 scikit-fda
-FDApy
-xgboost
+torch

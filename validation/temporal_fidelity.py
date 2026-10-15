@@ -9,9 +9,6 @@ from pathlib import Path
 from transformation.fda.fpca import fpca_hyperparameter_tuning, fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, landmark_registration
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
-from transformation.baseline.fft import *
-from transformation.baseline.pca import *
-from transformation.baseline.wavelet import *
 from metrics.fidelity import *
 from scenario_engineering.dataset_creation import get_temporal_scenarios, get_morphology_scenarios, get_distributional_scenarios
 
@@ -37,6 +34,7 @@ if __name__ == "__main__":
     smoothed_real, _, _, _ = basis_smoothing_with_lambda(real_warping_, lambda_, n_basis, domain_range)
     n_components = fpca_hyperparameter_tuning(smoothed_real)
     real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(smoothed_real, n_components)
+    real_score_subset = real_scores[np.random.choice(real_scores.shape[0], size=1500, replace=False)]
     real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
     real_umap = tune_umap(real_scores)
 

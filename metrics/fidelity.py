@@ -4,7 +4,6 @@ from sklearn.neighbors import NearestNeighbors
 from scipy.spatial.distance import pdist, squareform, jensenshannon
 from scipy.linalg import eigh
 from statsmodels.tsa.stattools import acf
-from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean, cdist
 from sklearn.neighbors import NearestNeighbors
 
@@ -60,39 +59,6 @@ def autocorrelation_score(real_data, synthetic_data, max_lag=24):
     acs_score = np.mean(np.abs(real_acf_profiles[:, 1:] - synth_acf_profiles[:, 1:]))
     
     return acs_score
-
-def dtw_score(real_data, synthetic_data, num_samples=100):
-    """
-    Computes the Expected DTW Distance between real and synthetic time series.
-    
-    Parameters:
-    - real_data: np.ndarray of shape (N, T, F)
-    - synthetic_data: np.ndarray of shape (N, T, F)
-    - num_samples: int, number of random pairs to evaluate (to avoid O(N^2) bottleneck)
-    
-    Returns:
-    - avg_dtw: float, average DTW distance. Lower is better.
-    """
-    N_real = len(real_data)
-    N_synth = len(synthetic_data)
-    
-    # Randomly sample indices to create pairs
-    idx_real = np.random.choice(N_real, size=num_samples, replace=False)
-    idx_synth = np.random.choice(N_synth, size=num_samples, replace=False)
-    
-    total_dtw = 0.0
-    
-    for r_idx, s_idx in zip(idx_real, idx_synth):
-        # Extract the sequence: shape (T, F)
-        seq_real = real_data[r_idx]
-        seq_synth = synthetic_data[s_idx]
-        
-        # fastdtw supports multidimensional sequences automatically
-        distance, path = fastdtw(seq_real, seq_synth, dist=euclidean)
-        total_dtw += distance
-        
-    avg_dtw = total_dtw / num_samples
-    return avg_dtw
 
 def sample_wise_warping_l2(real_warping_funcs, synth_warping_funcs):
     """
@@ -288,3 +254,56 @@ def precision_recall(real_features, synthetic_features, k=3):
     recall = np.mean(is_in_synth_manifold)
     
     return float(precision), float(recall)
+
+# MMD for Clinical MFPCA Evaluation
+def rbf_kernel(x, y, bandwidths):
+    """
+    Computes a multi-bandwidth RBF kernel matrix between matrices x and y.
+    """
+    # Expand dimensions to compute pairwise distance matrix via broadcasting
+    x_expanded = np.expand_dims(x, axis=1)  # Shape: [N, 1, D]
+    y_expanded = np.expand_dims(y, axis=0)  # Shape: [1, M, D]
+    
+    # Squared Euclidean distances between all pairs
+    distances = np.sum((x_expanded - y_expanded) ** 2, axis=2)
+    
+    # Calculate kernels for all bandwidths and sum them
+    kernel_matrix = np.zeros_like(distances)
+    for bw in bandwidths:
+        kernel_matrix += np.exp(-distances / (2 * (bw ** 2)))
+        
+    return kernel_matrix
+
+def mmd(real_features, synthetic_features, bandwidths=[0.1, 1.0, 10.0]):
+    """
+    Calculates the Maximum Mean Discrepancy (MMD) between two sets of features.
+    
+    Args:
+        real_features: Array of shape [Batch_Size, Features]
+        synthetic_features: Array of shape [Batch_Size, Features]
+        bandwidths: List of sigma values for the RBF kernel
+        
+    Returns:
+        mmd_score: A scalar representing the MMD distance
+    """
+    # Ensure inputs are NumPy arrays
+    real_features = np.asarray(real_features)
+    synthetic_features = np.asarray(synthetic_features)
+    
+    # Ensure inputs are 2D (Flatten the 6x22 clinical feature matrix if necessary)
+    if real_features.ndim > 2:
+        real_features = real_features.reshape(real_features.shape[0], -1)
+    if synthetic_features.ndim > 2:
+        synthetic_features = synthetic_features.reshape(synthetic_features.shape[0], -1)
+        
+    # Compute the 3 kernel components
+    xx_kernel = rbf_kernel(real_features, real_features, bandwidths)
+    yy_kernel = rbf_kernel(synthetic_features, synthetic_features, bandwidths)
+    xy_kernel = rbf_kernel(real_features, synthetic_features, bandwidths)
+    
+    # Compute the MMD^2 statistic (biased estimator)
+    mmd_squared = xx_kernel.mean() + yy_kernel.mean() - 2 * xy_kernel.mean()
+    
+    # Return the square root for the actual distance
+    # Add a small epsilon before sqrt for numerical stability if mmd_squared approaches 0
+    return np.sqrt(np.maximum(mmd_squared, 0) + 1e-8)

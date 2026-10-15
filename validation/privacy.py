@@ -1,161 +1,187 @@
+import os
+os.environ["NUMBA_NUM_THREADS"] = "1"
+
 import json
-import pickle
 import numpy as np
 from pathlib import Path
-from sklearn.metrics import mean_squared_error
-import matplotlib.pyplot as plt
-from metrics.privacy import *
+from skfda.representation.grid import FDataGrid
+from transformation.fda.fpca import fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
+from preprocess.ptbxl_preprocess import get_sr, get_landmarks, align_ecg
+from scenario_engineering.privacy_leaking_dataset_creation import get_leak_ratios
+from privacy_attack.aia import attacks as aia_attacks
+from privacy_attack.reidentification import attacks as reid_attacks
 
-def plot_roc_curve(fpr, tpr, auc_score, title):
-    plt.figure(figsize=(8, 6))
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'MIA Classifier (AUC = {auc_score:.3f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random Guessing (AUC = 0.500)')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate (FPR)', fontsize=12)
-    plt.ylabel('True Positive Rate (TPR)', fontsize=12)
-    plt.title(title, fontsize=14)
-    plt.legend(loc="lower right", fontsize=12)
-    plt.grid(alpha=0.3)
-    plt.savefig(f"images/validation/privacy/roc_curve_{title.replace(' ', '_').replace(':', '')}.png")
-    plt.close()
+data_path = Path("data/validation/privacy/")
 
-if __name__ == "__main__":
-    with open("data/validation/privacy/real_data.pkl", "rb") as f:
-        real_data = pickle.load(f)
-    with open("data/validation/privacy/real_components.pkl", "rb") as f:
-        real_components = pickle.load(f)
-    with open("data/validation/privacy/holdout_train.pkl", "rb") as f:
-        holdout_train = pickle.load(f)
-    with open("data/validation/privacy/holdout_scores.pkl", "rb") as f:
-        holdout_scores = pickle.load(f)
-    with open("data/validation/privacy/query_data.pkl", "rb") as f:
-        query_data = pickle.load(f)
-    with open("data/validation/privacy/query_label.pkl", "rb") as f:
-        query_label = pickle.load(f)
-    with open("data/validation/privacy/query_scores.pkl", "rb") as f:
-        query_scores = pickle.load(f)
-    with open("data/validation/privacy/privacy_leaking_dataset.pkl", "rb") as f:
-        privacy_leaking_dataset = pickle.load(f)
-    
-    # 1. Flatten the indices lists to prevent NumPy slicing dimension errors
-    seq_len = real_data.shape[1]
-    q1, q2, q3 = seq_len // 4, seq_len // 2, seq_len * 3 // 4
-    imputation_missing_indices = list(range(q1, q3))
-    imputation_known_indices = list(range(0, q1)) + list(range(q3, seq_len))
-    forecasting_missing_indices = list(range(q2, seq_len))
-    forecasting_known_indices = list(range(0, q2))
-
-    ### Baseline: Adversary only has access to holdout set
-    # MIA uses One-Class SVM on raw data
-    baseline_result_track = {}
-    auc_score, fpr, tpr = mia_baseline_ocsvm(holdout_train, query_data, query_label)
-    plot_roc_curve(fpr, tpr, auc_score, title="Baseline MIA")
-    
-    # Imputation: Compare population mean to true target missing segments using MSE
-    baseline_imp_mean = imputation_baseline(holdout_train, imputation_missing_indices)
-    baseline_imp_predictions = np.tile(baseline_imp_mean, (query_data.shape[0], 1))
-    baseline_imputation_mse = mean_squared_error(query_data[:, imputation_missing_indices], baseline_imp_predictions)
-
-    # Forecasting: Compare population mean to true target missing segments using MSE
-    baseline_fcst_mean = forecasting_baseline(holdout_train, forecasting_missing_indices)
-    baseline_fcst_predictions = np.tile(baseline_fcst_mean, (query_data.shape[0], 1))
-    baseline_forecasting_mse = mean_squared_error(query_data[:, forecasting_missing_indices], baseline_fcst_predictions)
-    baseline_result_track = {
-        "mia_auc": auc_score,
-        "imputation_mse": baseline_imputation_mse,
-        "forecasting_mse": baseline_forecasting_mse
+def load_set(name, split, ts_file=None):
+    return {
+        "demo": np.load(data_path / f"{name}_{split}_demographics.npy"),
+        "ts": np.load(data_path / f"{ts_file or f'{name}_{split}_ts'}.npy"),
     }
 
-    black_box_result_track = {}
-    grey_box_result_track = {}
+def subset(dataset, mask):
+    return {k: v[mask] for k, v in dataset.items()}
 
-    for key, value in privacy_leaking_dataset.items():
-        portion_ratio, leaking_ratio = key
-        synthetic_data, synthetic_scores = value
-        synthetic_mean = np.mean(synthetic_data, axis=0)
+def get_landmarks_with_index(signals, sr):
+    """
+    get_landmarks, plus the indices of the signals it kept. get_landmarks silently drops signals
+    without valid beats, so it is run per signal to keep the rows linked to their demographics.
+    """
+    kept, beats = [], []
+    for i, signal in enumerate(signals):
+        try:
+            landmark = get_landmarks(signal[None], sr)
+        except Exception:
+            continue
+        if len(landmark) > 0:
+            kept.append(i)
+            beats.append(landmark[0])
+    if not beats:
+        raise ValueError("No signal had valid landmarks.")
+    padded = np.full((len(beats), max(len(b) for b in beats), 3), -1, dtype=int)
+    for i, b in enumerate(beats):
+        padded[i, :len(b)] = b
+    return padded, np.array(kept)
 
-        ### Black Box I: Adversary trains models on the raw synthetic dataset + holdout set
-        train_data_raw = np.vstack((holdout_train, synthetic_data))
-        train_label = np.concatenate((np.zeros(holdout_train.shape[0]), np.ones(synthetic_data.shape[0])))
-        
-        # MIA
-        auc_score_rf, fpr_rf, tpr_rf = mia_rf(train_data_raw, train_label, query_data, query_label)
-        plot_roc_curve(fpr_rf, tpr_rf, auc_score_rf, title=f"Black Box RF MIA {portion_ratio}_{leaking_ratio}")
-        
-        auc_score_xgb, fpr_xgb, tpr_xgb = mia_xgb(train_data_raw, train_label, query_data, query_label)
-        plot_roc_curve(fpr_xgb, tpr_xgb, auc_score_xgb, title=f"Black Box XGB MIA {portion_ratio}_{leaking_ratio}")
+class FPCAFeatures:
+    """
+    Time series features for the greybox attacks: FPC scores of landmark-aligned ECGs.
+    Fit: signals -> get_landmarks -> align_ecg -> smoothing -> FPCA, keeping the FPCA grid points.
+    Transform: signals -> get_landmarks -> align_ecg -> smoothing -> projection onto the FPCA grid.
+    Signals without valid landmarks get NaN scores (imputed by the attacks).
+    """
+    def __init__(self, n_components=10, domain_range=(0, 1), sr=100):
+        self.n_components = n_components
+        self.domain_range = domain_range
+        self.sr = sr
 
-        # Imputation (Regression Attack)
-        bb_imp_predictions = regression_attack(
-            X_train_known=train_data_raw[:, imputation_known_indices],
-            X_train_missing=train_data_raw[:, imputation_missing_indices],
-            X_test_known=query_data[:, imputation_known_indices]
-        )
-        black_box_imputation_mse = mean_squared_error(query_data[:, imputation_missing_indices], bb_imp_predictions)
+    def _align(self, ts):
+        landmarks, kept = get_landmarks_with_index(ts, self.sr)
+        fd = align_ecg(ts[kept], landmarks)
+        if fd.n_samples != len(kept):
+            raise ValueError("align_ecg dropped signals; rows would no longer match their demographics.")
+        return fd, kept
 
-        # Forecasting (Regression Attack)
-        bb_fcst_predictions = regression_attack(
-            X_train_known=train_data_raw[:, forecasting_known_indices],
-            X_train_missing=train_data_raw[:, forecasting_missing_indices],
-            X_test_known=query_data[:, forecasting_known_indices]
-        )
-        black_box_forecasting_mse = mean_squared_error(query_data[:, forecasting_missing_indices], bb_fcst_predictions)
+    def fit(self, ts):
+        fd, kept = self._align(ts)
+        _, n_timepoints, _ = fd.data_matrix.shape
+        self.n_basis = int(n_timepoints / 2)
+        lambda_ = basis_smoothing_hyperparameter_tuning(fd, self.n_basis, self.domain_range)
+        fd_smooth, _, _, _ = basis_smoothing_with_lambda(fd, lambda_, self.n_basis, self.domain_range)
+        _, _, _, self.var_ratio, self.fpca_ = fpca_with_param(fd_smooth, self.n_components)
+        self.grid = self.fpca_.components_.grid_points[0]
+        self.n_fit, self.n_fit_dropped = len(kept), len(ts) - len(kept)
+        return self
 
-        black_box_result_track[key] = {
-            "mia_rf_auc": auc_score_rf,
-            "mia_xgb_auc": auc_score_xgb,
-            "imputation_mse": black_box_imputation_mse,
-            "forecasting_mse": black_box_forecasting_mse
+    def transform(self, ts):
+        fd, kept = self._align(ts)
+        lambda_ = basis_smoothing_hyperparameter_tuning(fd, self.n_basis, self.domain_range)
+        fd_smooth, _, _, _ = basis_smoothing_with_lambda(fd, lambda_, self.n_basis, self.domain_range)
+        fd_smooth = FDataGrid(data_matrix=fd_smooth(self.grid), grid_points=self.grid)
+
+        scores = np.full((len(ts), self.n_components), np.nan)
+        scores[kept] = self.fpca_.transform(fd_smooth)
+        self.n_dropped = len(ts) - len(kept)
+        return scores
+
+def run_attack(attack_cls, synthetic, targets, seeds, **attack_kwargs):
+    """Fit the attack on the synthetic data once per seed and evaluate it on every target group."""
+    runs = {group: [] for group in targets}
+    for seed in seeds:
+        attack = attack_cls(seed=seed, **attack_kwargs).fit(synthetic["demo"], synthetic["ts"], synthetic["feat"])
+        for group, target in targets.items():
+            runs[group].append(attack.evaluate(target["demo"], target["ts"], target["feat"]))
+
+    result = {}
+    for group, group_runs in runs.items():
+        result[group] = {
+            "mean": {k: float(np.mean([r[k] for r in group_runs])) for k in group_runs[0]},
+            "std": {k: float(np.std([r[k] for r in group_runs])) for k in group_runs[0]},
+            "runs": group_runs,
         }
+    return result
 
-        ### Grey Box: Adversary trains exclusively on the FPC score structural fingerprints
-        # Prevent feature dilution: Stack ONLY the scores, not the raw arrays
-        train_features_scores = np.vstack((holdout_scores, synthetic_scores))
-
-        # MIA
-        gb_auc_score_rf, gb_fpr_rf, gb_tpr_rf = mia_rf(train_features_scores, train_label, query_scores, query_label)
-        plot_roc_curve(gb_fpr_rf, gb_tpr_rf, gb_auc_score_rf, title=f"Grey Box RF MIA {portion_ratio}_{leaking_ratio}")
-        
-        gb_auc_score_xgb, gb_fpr_xgb, gb_tpr_xgb = mia_xgb(train_features_scores, train_label, query_scores, query_label)
-        plot_roc_curve(gb_fpr_xgb, gb_tpr_xgb, gb_auc_score_xgb, title=f"Grey Box XGB MIA {portion_ratio}_{leaking_ratio}")
-
-        # Imputation (Iterate over targets to avoid lstsq dimensionality crash)
-        gb_imp_predictions = np.zeros((query_data.shape[0], len(imputation_missing_indices)))
-        for i in range(query_data.shape[0]):
-            gb_imp_predictions[i] = imputation_fpc(
-                target_known=query_data[i, imputation_known_indices], 
-                known_indices=imputation_known_indices, 
-                missing_indices=imputation_missing_indices, 
-                synth_fpcs=real_components, 
-                synth_mean=synthetic_mean
-            )
-        grey_box_imputation_mse = mean_squared_error(query_data[:, imputation_missing_indices], gb_imp_predictions)
-
-        # Forecasting (Iterate over targets)
-        gb_fcst_predictions = np.zeros((query_data.shape[0], len(forecasting_missing_indices)))
-        for i in range(query_data.shape[0]):
-            gb_fcst_predictions[i] = forecasting_fpc(
-                target_known=query_data[i, forecasting_known_indices], 
-                known_indices=forecasting_known_indices, 
-                forecast_indices=forecasting_missing_indices, 
-                synth_fpcs=real_components, 
-                synth_mean=synthetic_mean
-            )
-        grey_box_forecasting_mse = mean_squared_error(query_data[:, forecasting_missing_indices], gb_fcst_predictions)
-
-        grey_box_result_track[key] = {
-            "mia_rf_auc": gb_auc_score_rf,
-            "mia_xgb_auc": gb_auc_score_xgb,
-            "imputation_mse": grey_box_imputation_mse,
-            "forecasting_mse": grey_box_forecasting_mse
-        }
-
-    path = Path("images/validation/privacy")
+if __name__ == "__main__":
+    save_path = "images/privacy_val/"
+    path = Path(save_path)
     path.mkdir(parents=True, exist_ok=True)
-    with open(path / "baseline_result.json", "w") as f:
-        json.dump(baseline_result_track, f, indent=4)
-    with open(path / "black_box_result.json", "w") as f:
-        json.dump(black_box_result_track, f, indent=4)
-    with open(path / "grey_box_result.json", "w") as f:
-        json.dump(grey_box_result_track, f, indent=4)
+
+    sr = get_sr()
+    n_components = 10
+    domain_range = (0, 1)
+    seeds = [0, 1, 2]
+    # Sensitive attribute -> task for the AIA
+    aia_targets = {"sex": "classification", "age": "regression"}
+    reid_kwargs = {"epochs": 500, "patience": 30}
+
+    np.random.seed(42)
+
+    ### FPCA fitted on the Holdout set (train + test)
+    holdout_ts = np.concatenate([np.load(data_path / f"holdout_{split}_ts.npy") for split in ("train", "test")])
+    fpca_features = FPCAFeatures(n_components, domain_range, sr).fit(holdout_ts)
+    print(f"FPCA fitted on {fpca_features.n_fit} holdout ECGs ({fpca_features.n_fit_dropped} without landmarks)")
+
+    ### Real (member) Data: attack targets only
+    real = {split: load_set("real", split) for split in ("train", "test")}
+    n_dropped = {}
+    for split, dataset in real.items():
+        dataset["feat"] = fpca_features.transform(dataset["ts"])
+        n_dropped[f"real_{split}"] = fpca_features.n_dropped
+
+    synthetic_demographics = np.load(data_path / "synthetic_train_demographics.npy")
+    if not np.array_equal(np.load(data_path / "synthetic_train_index.npy"), np.load(data_path / "real_train_index.npy")):
+        raise ValueError("Synthetic train rows are not aligned with their real train source rows.")
+
+    ### Attacks per Leaking Ratio
+    # The attacks train on the synthetic train split, whose rows are derived from the real train members.
+    # real_train_leaked: members whose series was memorized; real_train_not_leaked: only their demographics leaked;
+    # real_test: members never seen by the attack.
+    result_tracking = {
+        "config": {
+            "seeds": seeds,
+            "n_components": n_components,
+            "fpca_var_ratio": fpca_features.var_ratio.tolist(),
+            "fpca_n_fit": fpca_features.n_fit,
+            "fpca_n_fit_dropped": fpca_features.n_fit_dropped,
+            "n_without_landmarks": n_dropped,
+            "aia_targets": aia_targets,
+            "reid_kwargs": reid_kwargs,
+        },
+    }
+    for ratio in get_leak_ratios():
+        key = f"{ratio:.2f}"
+        synthetic = {
+            "demo": synthetic_demographics,
+            "ts": np.load(data_path / f"synthetic_train_ts_leak_{key}.npy"),
+        }
+        synthetic["feat"] = fpca_features.transform(synthetic["ts"])
+        n_dropped[f"synthetic_train_{key}"] = fpca_features.n_dropped
+        leak_mask = np.load(data_path / f"synthetic_train_leak_mask_{key}.npy")
+
+        targets = {
+            "real_train": real["train"],
+            "real_train_leaked": subset(real["train"], leak_mask),
+            "real_train_not_leaked": subset(real["train"], ~leak_mask),
+            "real_test": real["test"],
+        }
+
+        result_tracking[key] = {"n_synthetic": int(len(leak_mask)), "n_leaked": int(leak_mask.sum()),
+                                "aia": {}, "reidentification": {}}
+
+        # Attribute Inference Attack
+        for sensitive_col, task in aia_targets.items():
+            result_tracking[key]["aia"][sensitive_col] = {}
+            for attack_name, attack_cls in aia_attacks.items():
+                result_tracking[key]["aia"][sensitive_col][attack_name] = run_attack(
+                    attack_cls, synthetic, targets, seeds, sensitive_col=sensitive_col, task=task, verbose=False)
+                print(f"[{key}] {attack_name} AIA ({sensitive_col}) done")
+
+        # Re-identification Attack
+        for attack_name, attack_cls in reid_attacks.items():
+            result_tracking[key]["reidentification"][attack_name] = run_attack(
+                attack_cls, synthetic, targets, seeds, verbose=False, **reid_kwargs)
+            print(f"[{key}] {attack_name} Re-ID done")
+
+        # Save after every ratio so partial results survive a job timeout
+        with open(save_path + "privacy_val_result.json", "w") as f:
+            json.dump(result_tracking, f, indent=2)

@@ -8,9 +8,6 @@ from transformation.fda.fpca import fpca_with_param, basis_smoothing_hyperparame
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
 from scenario_engineering.dataset_creation import get_distributional_scenarios, get_morphology_scenarios, get_temporal_scenarios
-from transformation.baseline.pca import *
-from transformation.baseline.fft import *
-from transformation.baseline.wavelet import *
 from metrics.fidelity import *
 
 if __name__ == "__main__":

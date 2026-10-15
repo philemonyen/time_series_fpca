@@ -3,6 +3,8 @@ import numpy as np
 from scipy.ndimage import uniform_filter1d
 from scipy.interpolate import interp1d
 from scipy.spatial.distance import mahalanobis
+from scipy.cluster.hierarchy import linkage, fcluster
+from preprocess.ecg_clinical_preprocess import get_clinical_features_from_pqrst
 
 
 ### Morphological Flawed Scenario Engineering ###
@@ -37,10 +39,51 @@ def gaussian_noise(real_data, landmarks, clinical_landmarks=None, noise_multipli
     return synthetic_data, landmarks, clinical_landmarks
 
 ### Distributional Flawed Scenario Engineering ###
-def mode_collapse(real_data, real_landmarks, real_clinical_landmarks, num_modes=5, spike_ratio=0.50, max_spike_size=1000):
+def stratify_records(real_data, real_clinical_landmarks, n_strata=10, sr=100):
+    """
+    Partitions records into clinical strata ordered from largest to smallest.
+
+    Each record is summarised by its median PR, RR, QRS, QT, R amplitude, and
+    QRS area, z-scored across records, and grouped by Ward hierarchical
+    clustering into `n_strata` clusters. Records without any measurable beat
+    are left out of every stratum.
+
+    Returns a list of (member_indices, medoid_index) tuples, largest first.
+    The medoid is the member closest to its stratum centroid.
+    """
+    features = get_clinical_features_from_pqrst(real_data, real_clinical_landmarks, sr=sr)
+    valid_beats = features[1] > 0
+    summary = np.full((features.shape[1], features.shape[0]), np.nan)
+    for i in range(features.shape[1]):
+        if np.any(valid_beats[i]):
+            summary[i] = np.median(features[:, i, valid_beats[i]], axis=1)
+
+    measurable = np.where(~np.isnan(summary).any(axis=1))[0]
+    if measurable.size < n_strata:
+        raise ValueError(f"Only {measurable.size} records have clinical features; cannot form {n_strata} strata.")
+
+    z = summary[measurable]
+    z = (z - z.mean(axis=0)) / np.where(z.std(axis=0) > 0, z.std(axis=0), 1.0)
+    labels = fcluster(linkage(z, method="ward"), t=n_strata, criterion="maxclust")
+
+    strata = []
+    for label in np.unique(labels):
+        in_stratum = labels == label
+        centroid = z[in_stratum].mean(axis=0)
+        members = measurable[in_stratum]
+        medoid = members[np.argmin(np.linalg.norm(z[in_stratum] - centroid, axis=1))]
+        strata.append((members, int(medoid)))
+    strata.sort(key=lambda stratum: stratum[0].size, reverse=True)
+    return strata
+
+def mode_collapse(real_data, real_landmarks, real_clinical_landmarks, num_modes=5, spike_ratio=0.50, max_spike_size=1000, n_strata=10):
     """
     Creates a dataset exhibiting mode collapse by forcing regional density spikes 
     while maintaining a fixed total population size.
+
+    Templates are the medoids of the `num_modes` largest clinical strata from
+    `stratify_records`, so the spikes land on the dominant subgroups of the
+    real data instead of on randomly drawn, possibly outlying records.
     """
     total_real_samples = real_data.shape[0]
     
@@ -49,8 +92,11 @@ def mode_collapse(real_data, real_landmarks, real_clinical_landmarks, num_modes=
     total_spike_samples = num_modes * spike_size
     remaining_samples = total_real_samples - total_spike_samples
 
-    # 1. Select the modes (templates for the spikes)
-    mode_indices = np.random.choice(total_real_samples, size=num_modes, replace=False)
+    # 1. Select the modes (medoids of the dominant strata)
+    strata = stratify_records(real_data, real_clinical_landmarks, n_strata=n_strata)
+    if num_modes > len(strata):
+        raise ValueError(f"num_modes={num_modes} exceeds the {len(strata)} available strata.")
+    mode_indices = np.array([medoid for _, medoid in strata[:num_modes]])
     templates = real_data[mode_indices]
     templates_landmarks = real_landmarks[mode_indices]
     templates_clinical_landmarks = real_clinical_landmarks[mode_indices]
