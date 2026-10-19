@@ -1,8 +1,9 @@
 """
 Re-identification attacks on synthetic ECG data.
 
-The adversary trains on the synthetic release to map a record to the patient it was
-generated from, then links target (real) records to a patient_id:
+The adversary trains on the synthetic release plus the holdout records, then links
+target records to a patient_id. Every box setting sees the holdout through the
+inputs it is allowed to use:
 
     Tabular Re-ID   : demographics                                          -> patient_id
     Blackbox Re-ID  : demographics + proj(time series)                       -> patient_id
@@ -31,10 +32,11 @@ reidentification_columns = ['patient_id', 'age', 'sex', 'height', 'weight']
 
 class ReidentificationAttack(AttributeInferenceAttack):
     """
-    Classifies each record into one of the patient_ids seen in the synthetic data.
+    Classifies each record into one of the patient_ids seen in training.
 
-    Every patient_id must be seen during training to be linkable, so by default the model is fit
-    on the whole synthetic set (val_size=0) with a wider head to memorise the id mapping.
+    Training rows are the synthetic release plus the holdout records, for every box setting.
+    A patient_id can only be predicted if it was seen, so by default the model is fit on all of
+    those rows (val_size=0) with a wider head to memorise the id mapping.
     """
     kind = "Re-ID"
     columns = reidentification_columns
@@ -67,25 +69,24 @@ class ReidentificationAttack(AttributeInferenceAttack):
         metrics["mrr"] = np.mean(np.where(seen, 1.0 / ranks, 0.0))
         metrics["coverage"] = np.mean(seen)
         metrics["top1_accuracy_covered"] = np.mean(ranks[seen] <= 1) if seen.any() else float("nan")
-        metrics["baseline_top1_accuracy"] = metrics["coverage"] / n_ids
         metrics["n_targets"] = len(ranks)
         metrics["n_synthetic_ids"] = n_ids
         return {k: float(v) for k, v in metrics.items()}
 
 
 class TabularReID(ReidentificationAttack):
-    """Synthetic demographics only."""
+    """Demographics from the synthetic release and the holdout set."""
     name = "tabular"
 
 
 class BlackboxReID(ReidentificationAttack):
-    """Synthetic demographics + projected synthetic time series."""
+    """Demographics plus the projected time series, from the synthetic release and the holdout set."""
     name = "blackbox"
     uses_ts = True
 
 
 class GreyboxReID(ReidentificationAttack):
-    """Synthetic demographics + projected synthetic time series + time series features."""
+    """Demographics, projected time series, and time series features, from the synthetic release and the holdout set."""
     name = "greybox"
     uses_ts = True
     uses_feat = True

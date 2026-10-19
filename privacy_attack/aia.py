@@ -1,8 +1,9 @@
 """
 Attribute Inference Attacks (AIA) on synthetic ECG data.
 
-The adversary trains on the synthetic release and infers a sensitive attribute
-of target (real) records from the attributes it already knows:
+The adversary trains on the synthetic release plus the holdout (auxiliary real)
+records, then infers a sensitive attribute of target records. Every box setting
+sees the holdout through the inputs it is allowed to use:
 
     Tabular AIA   : demographics (minus sensitive attr)                    -> sensitive attr
     Blackbox AIA  : demographics + proj(time series)                       -> sensitive attr
@@ -220,9 +221,42 @@ class AttributeInferenceAttack:
         return {k: torch.as_tensor(v if idx is None else v[idx], device=self.device) for k, v in inputs.items()}
 
     # -- training --
-    def fit(self, demo, ts=None, feat=None):
-        """Train the attack model on the synthetic release."""
+    def _concat_demo(self, demo, extra):
+        if isinstance(demo, pd.DataFrame) or isinstance(extra, pd.DataFrame):
+            frames = []
+            for part in (demo, extra):
+                frames.append(part.reset_index(drop=True) if isinstance(part, pd.DataFrame) else pd.DataFrame(part))
+            return pd.concat(frames, ignore_index=True)
+        demo, extra = np.asarray(demo), np.asarray(extra)
+        if demo.shape[1] != extra.shape[1]:
+            raise ValueError(f"Holdout demographics have {extra.shape[1]} columns; synthetic has {demo.shape[1]}.")
+        return np.concatenate([demo, extra], axis=0)
+
+    def _with_holdout(self, demo, ts, feat, holdout_demo, holdout_ts, holdout_feat):
+        """Append auxiliary holdout records. Modalities the attack cannot use are left out."""
+        if holdout_demo is None:
+            self.n_holdout_ = 0
+            return demo, ts, feat
+        if self.uses_ts and holdout_ts is None:
+            raise ValueError(f"{self.name} {self.kind} requires holdout time series.")
+        if self.uses_feat and holdout_feat is None:
+            raise ValueError(f"{self.name} {self.kind} requires holdout time series features.")
+        if self.uses_ts and len(holdout_ts) != len(holdout_demo):
+            raise ValueError("Holdout time series and demographics have different lengths.")
+        if self.uses_feat and len(holdout_feat) != len(holdout_demo):
+            raise ValueError("Holdout features and demographics have different lengths.")
+        demo = self._concat_demo(demo, holdout_demo)
+        if self.uses_ts:
+            ts = np.concatenate([np.asarray(ts), np.asarray(holdout_ts)], axis=0)
+        if self.uses_feat:
+            feat = np.concatenate([np.asarray(feat), np.asarray(holdout_feat)], axis=0)
+        self.n_holdout_ = len(holdout_demo)
+        return demo, ts, feat
+
+    def fit(self, demo, ts=None, feat=None, holdout_demo=None, holdout_ts=None, holdout_feat=None):
+        """Train on the synthetic release plus holdout records, when holdout demographics are given."""
         set_seed(self.seed)
+        demo, ts, feat = self._with_holdout(demo, ts, feat, holdout_demo, holdout_ts, holdout_feat)
         inputs, y_raw = self._prepare(demo, ts, feat, fit=True)
         y = self._encode_target(y_raw, fit=True)
         valid = (y >= 0) if self.task == "classification" else ~np.isnan(y)
@@ -349,25 +383,27 @@ class AttributeInferenceAttack:
         metrics["n_targets"] = int(valid.sum())
         return {k: float(v) for k, v in metrics.items()}
 
-    def fit_evaluate(self, synthetic, target):
-        """synthetic / target: dicts with keys "demo", "ts", "feat"."""
-        self.fit(synthetic["demo"], synthetic.get("ts"), synthetic.get("feat"))
+    def fit_evaluate(self, synthetic, target, holdout=None):
+        """synthetic / target / holdout: dicts with keys "demo", "ts", "feat"."""
+        holdout = holdout or {}
+        self.fit(synthetic["demo"], synthetic.get("ts"), synthetic.get("feat"),
+                 holdout.get("demo"), holdout.get("ts"), holdout.get("feat"))
         return self.evaluate(target["demo"], target.get("ts"), target.get("feat"))
 
 
 class TabularAIA(AttributeInferenceAttack):
-    """Synthetic demographics only."""
+    """Demographics from the synthetic release and the holdout set."""
     name = "tabular"
 
 
 class BlackboxAIA(AttributeInferenceAttack):
-    """Synthetic demographics + projected synthetic time series."""
+    """Demographics plus the projected time series, from the synthetic release and the holdout set."""
     name = "blackbox"
     uses_ts = True
 
 
 class GreyboxAIA(AttributeInferenceAttack):
-    """Synthetic demographics + projected synthetic time series + time series features."""
+    """Demographics, projected time series, and time series features, from the synthetic release and the holdout set."""
     name = "greybox"
     uses_ts = True
     uses_feat = True
@@ -399,6 +435,9 @@ def add_common_args(parser, attack_names, default_output):
     parser.add_argument("--target-demo", required=True)
     parser.add_argument("--target-ts")
     parser.add_argument("--target-feat")
+    parser.add_argument("--holdout-demo")
+    parser.add_argument("--holdout-ts")
+    parser.add_argument("--holdout-feat")
     parser.add_argument("--attacks", nargs="+", choices=attack_names, default=attack_names)
     parser.add_argument("--embed-dim", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=200)
@@ -415,6 +454,8 @@ def run_attacks(args, attack_classes, **attack_kwargs):
                  "feat": load_array(args.synthetic_feat)}
     target = {"demo": load_array(args.target_demo), "ts": load_array(args.target_ts),
               "feat": load_array(args.target_feat)}
+    holdout = {"demo": load_array(args.holdout_demo), "ts": load_array(args.holdout_ts),
+               "feat": load_array(args.holdout_feat)}
     print(f"Device: {get_device()}")
 
     results = {}
@@ -425,7 +466,7 @@ def run_attacks(args, attack_classes, **attack_kwargs):
                 embed_dim=args.embed_dim, epochs=args.epochs, patience=args.patience,
                 batch_size=args.batch_size, lr=args.lr, seed=seed, **attack_kwargs,
             )
-            runs.append(attack.fit_evaluate(synthetic, target))
+            runs.append(attack.fit_evaluate(synthetic, target, holdout))
             print(f"[{attack_name} {attack.kind}] seed {seed}: {runs[-1]}")
         results[attack_name] = {
             "runs": runs,

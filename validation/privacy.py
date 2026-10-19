@@ -7,7 +7,7 @@ from pathlib import Path
 from skfda.representation.grid import FDataGrid
 from transformation.fda.fpca import fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda
 from preprocess.ptbxl_preprocess import get_sr, get_landmarks, align_ecg
-from scenario_engineering.privacy_leaking_dataset_creation import get_leak_ratios
+from scenario_engineering.privacy_leaking_dataset_creation import get_leak_ratios, get_leak_situations
 from privacy_attack.aia import attacks as aia_attacks
 from privacy_attack.reidentification import attacks as reid_attacks
 
@@ -18,9 +18,6 @@ def load_set(name, split, ts_file=None):
         "demo": np.load(data_path / f"{name}_{split}_demographics.npy"),
         "ts": np.load(data_path / f"{ts_file or f'{name}_{split}_ts'}.npy"),
     }
-
-def subset(dataset, mask):
-    return {k: v[mask] for k, v in dataset.items()}
 
 def get_landmarks_with_index(signals, sr):
     """
@@ -84,22 +81,29 @@ class FPCAFeatures:
         self.n_dropped = len(ts) - len(kept)
         return scores
 
-def run_attack(attack_cls, synthetic, targets, seeds, **attack_kwargs):
-    """Fit the attack on the synthetic data once per seed and evaluate it on every target group."""
-    runs = {group: [] for group in targets}
-    for seed in seeds:
-        attack = attack_cls(seed=seed, **attack_kwargs).fit(synthetic["demo"], synthetic["ts"], synthetic["feat"])
-        for group, target in targets.items():
-            runs[group].append(attack.evaluate(target["demo"], target["ts"], target["feat"]))
+# Metrics recorded for the validation. Age uses MAE; sex uses accuracy and AUC, each against its baseline.
+aia_metrics = {
+    "age": ("mae", "baseline_mae"),
+    "sex": ("accuracy", "auc", "baseline_accuracy"),
+}
+reid_metrics = ("top1_accuracy", "top5_accuracy", "top10_accuracy", "mrr")
 
-    result = {}
-    for group, group_runs in runs.items():
-        result[group] = {
-            "mean": {k: float(np.mean([r[k] for r in group_runs])) for k in group_runs[0]},
-            "std": {k: float(np.std([r[k] for r in group_runs])) for k in group_runs[0]},
-            "runs": group_runs,
-        }
-    return result
+def summarize(runs, metric_names):
+    return {
+        "mean": {k: float(np.mean([r[k] for r in runs])) for k in metric_names},
+        "std": {k: float(np.std([r[k] for r in runs])) for k in metric_names},
+        "runs": [{k: r[k] for k in metric_names} for r in runs],
+    }
+
+def run_attack(attack_cls, synthetic, holdout, target, seeds, metric_names, **attack_kwargs):
+    """Fit on the synthetic release plus holdout, then score the whole real training set."""
+    runs = []
+    for seed in seeds:
+        attack = attack_cls(seed=seed, **attack_kwargs)
+        attack.fit(synthetic["demo"], synthetic["ts"], synthetic["feat"],
+                   holdout["demo"], holdout["ts"], holdout["feat"])
+        runs.append(attack.evaluate(target["demo"], target["ts"], target["feat"]))
+    return summarize(runs, metric_names)
 
 if __name__ == "__main__":
     save_path = "images/privacy_val/"
@@ -115,27 +119,34 @@ if __name__ == "__main__":
     reid_kwargs = {"epochs": 500, "patience": 30}
 
     np.random.seed(42)
+    n_dropped = {}
 
     ### FPCA fitted on the Holdout set (train + test)
     holdout_ts = np.concatenate([np.load(data_path / f"holdout_{split}_ts.npy") for split in ("train", "test")])
     fpca_features = FPCAFeatures(n_components, domain_range, sr).fit(holdout_ts)
     print(f"FPCA fitted on {fpca_features.n_fit} holdout ECGs ({fpca_features.n_fit_dropped} without landmarks)")
+    holdout = {
+        "demo": np.concatenate([np.load(data_path / f"holdout_{split}_demographics.npy") for split in ("train", "test")]),
+        "ts": holdout_ts,
+        "feat": fpca_features.transform(holdout_ts),
+    }
+    n_dropped["holdout"] = fpca_features.n_dropped
+    print(f"Holdout auxiliary set: {len(holdout['demo'])} records")
 
     ### Real (member) Data: attack targets only
     real = {split: load_set("real", split) for split in ("train", "test")}
-    n_dropped = {}
     for split, dataset in real.items():
         dataset["feat"] = fpca_features.transform(dataset["ts"])
         n_dropped[f"real_{split}"] = fpca_features.n_dropped
 
-    synthetic_demographics = np.load(data_path / "synthetic_train_demographics.npy")
     if not np.array_equal(np.load(data_path / "synthetic_train_index.npy"), np.load(data_path / "real_train_index.npy")):
         raise ValueError("Synthetic train rows are not aligned with their real train source rows.")
 
-    ### Attacks per Leaking Ratio
-    # The attacks train on the synthetic train split, whose rows are derived from the real train members.
-    # real_train_leaked: members whose series was memorized; real_train_not_leaked: only their demographics leaked;
-    # real_test: members never seen by the attack.
+    ### One attack run per leak situation and ratio
+    # The attacks train on that situation's synthetic train split plus the holdout auxiliary
+    # set, and are scored on all real train members. The ratio r is the overall fraction of
+    # synthetic rows in the memorized subset.
+    situations = get_leak_situations()
     result_tracking = {
         "config": {
             "seeds": seeds,
@@ -146,42 +157,40 @@ if __name__ == "__main__":
             "n_without_landmarks": n_dropped,
             "aia_targets": aia_targets,
             "reid_kwargs": reid_kwargs,
+            "leak_situations": [situation["name"] for situation in situations],
+            "leak_ratios": get_leak_ratios(),
+            "n_holdout": len(holdout["demo"]),
         },
     }
-    for ratio in get_leak_ratios():
-        key = f"{ratio:.2f}"
-        synthetic = {
-            "demo": synthetic_demographics,
-            "ts": np.load(data_path / f"synthetic_train_ts_leak_{key}.npy"),
-        }
-        synthetic["feat"] = fpca_features.transform(synthetic["ts"])
-        n_dropped[f"synthetic_train_{key}"] = fpca_features.n_dropped
-        leak_mask = np.load(data_path / f"synthetic_train_leak_mask_{key}.npy")
+    for situation in situations:
+        result_tracking[situation["name"]] = {}
+        for ratio in get_leak_ratios():
+            key = f"{ratio:.2f}"
+            stem = f"synthetic_{situation['name']}_{key}"
+            synthetic = {
+                "demo": np.load(data_path / f"{stem}_train_demographics.npy"),
+                "ts": np.load(data_path / f"{stem}_train_ts.npy"),
+            }
+            synthetic["feat"] = fpca_features.transform(synthetic["ts"])
+            n_dropped[f"{stem}_train"] = fpca_features.n_dropped
+            result_tracking[situation["name"]][key] = {
+                "n_train": len(real["train"]["demo"]),
+                "aia": {},
+                "reidentification": {},
+            }
 
-        targets = {
-            "real_train": real["train"],
-            "real_train_leaked": subset(real["train"], leak_mask),
-            "real_train_not_leaked": subset(real["train"], ~leak_mask),
-            "real_test": real["test"],
-        }
+            for sensitive_col, task in aia_targets.items():
+                result_tracking[situation["name"]][key]["aia"][sensitive_col] = {}
+                for attack_name, attack_cls in aia_attacks.items():
+                    result_tracking[situation["name"]][key]["aia"][sensitive_col][attack_name] = run_attack(
+                        attack_cls, synthetic, holdout, real["train"], seeds, aia_metrics[sensitive_col],
+                        sensitive_col=sensitive_col, task=task, verbose=False)
+                    print(f"[{situation['name']} {key}] {attack_name} AIA ({sensitive_col}) done")
 
-        result_tracking[key] = {"n_synthetic": int(len(leak_mask)), "n_leaked": int(leak_mask.sum()),
-                                "aia": {}, "reidentification": {}}
+            for attack_name, attack_cls in reid_attacks.items():
+                result_tracking[situation["name"]][key]["reidentification"][attack_name] = run_attack(
+                    attack_cls, synthetic, holdout, real["train"], seeds, reid_metrics, verbose=False, **reid_kwargs)
+                print(f"[{situation['name']} {key}] {attack_name} Re-ID done")
 
-        # Attribute Inference Attack
-        for sensitive_col, task in aia_targets.items():
-            result_tracking[key]["aia"][sensitive_col] = {}
-            for attack_name, attack_cls in aia_attacks.items():
-                result_tracking[key]["aia"][sensitive_col][attack_name] = run_attack(
-                    attack_cls, synthetic, targets, seeds, sensitive_col=sensitive_col, task=task, verbose=False)
-                print(f"[{key}] {attack_name} AIA ({sensitive_col}) done")
-
-        # Re-identification Attack
-        for attack_name, attack_cls in reid_attacks.items():
-            result_tracking[key]["reidentification"][attack_name] = run_attack(
-                attack_cls, synthetic, targets, seeds, verbose=False, **reid_kwargs)
-            print(f"[{key}] {attack_name} Re-ID done")
-
-        # Save after every ratio so partial results survive a job timeout
-        with open(save_path + "privacy_val_result.json", "w") as f:
-            json.dump(result_tracking, f, indent=2)
+            with open(save_path + "privacy_val_result.json", "w") as f:
+                json.dump(result_tracking, f, indent=2)
