@@ -1,25 +1,19 @@
 """
 Attribute Inference Attacks (AIA) on synthetic ECG data.
 
-The adversary trains on the synthetic release plus the holdout (auxiliary real)
-records, then infers a sensitive attribute of target records. Every box setting
-sees the holdout through the inputs it is allowed to use:
+The adversary trains on the synthetic training split plus the holdout (auxiliary
+real) records, after those rows are shuffled together. Performance is reported
+on the synthetic test split. The adversary is not scored on the real members.
+Every box setting sees the holdout through the inputs it is allowed to use:
 
     Tabular AIA   : demographics (minus sensitive attr)                    -> sensitive attr
     Blackbox AIA  : demographics + proj(time series)                       -> sensitive attr
     Greybox AIA   : demographics + proj(time series) + time series features -> sensitive attr
 
-Shapes: demographics N x 4 (age, sex, height, weight), time series N x 1000,
-time series features N x 10. Raw PTB-XL demographics (N x 7) are also accepted;
+Shapes: demographics N x 4 (age, sex, height, weight), time series N x L
+(the shared landmark-aligned length), time series features N x 10. Raw PTB-XL
+demographics (N x 7) are also accepted;
 the identifier columns (ecg_id, patient_id, strat_fold) are dropped.
-The time series is projected to `embed_dim` (default 32) before fusion, so the
-fused input is 3 (tabular), 3 + 32 (blackbox) or 3 + 32 + 10 (greybox) wide.
-
-Usage:
-    python -m privacy_attack.aia \
-        --synthetic-demo SD.pkl --synthetic-ts ST.npy --synthetic-feat SF.npy \
-        --target-demo RD.pkl --target-ts RT.npy --target-feat RF.npy \
-        --sensitive-col sex --task classification
 """
 import argparse
 import json
@@ -37,62 +31,84 @@ from sklearn.model_selection import train_test_split
 ptbxl_demographic_columns = ['ecg_id', 'patient_id', 'age', 'sex', 'height', 'weight', 'strat_fold']
 demographic_columns = ['age', 'sex', 'height', 'weight']
 
-
 def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-
 #### ---- Models ---- ####
-class TimeSeriesProjection(nn.Module):
-    """Projects a raw time series (N x ts_len) to a low-dimensional embedding (N x embed_dim)."""
-    def __init__(self, ts_len=1000, embed_dim=32):
-        super().__init__()
-        self.proj = nn.Sequential(
-            nn.Linear(ts_len, embed_dim),
-            nn.LayerNorm(embed_dim),
-            nn.ReLU(),
-        )
-
-    def forward(self, ts):
-        return self.proj(ts)
-
-
 class AIANetwork(nn.Module):
     """
-    MLP over the concatenation of [demographics, proj(time series), time series features].
-    The time series / feature branches are only built when their dimensions are given.
+    Late-Fusion architecture to capture non-linear correlations between ECG modalities
+    and target attributes independently before fusion.
     """
     def __init__(self, demo_dim, out_dim, ts_len=None, feat_dim=None, embed_dim=32,
-                 hidden_dims=(64, 32), dropout=0.2):
+                 hidden_dims=(128, 64, 32), dropout=0.3):
         super().__init__()
-        self.ts_proj = TimeSeriesProjection(ts_len, embed_dim) if ts_len else None
-        in_dim = demo_dim + (embed_dim if ts_len else 0) + (feat_dim or 0)
+        self.uses_ts = ts_len is not None
+        self.uses_feat = feat_dim is not None
 
+        # 1. Independent Demographic Branch
+        self.demo_branch = nn.Sequential(
+            nn.Linear(demo_dim, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+
+        # 2. Independent TS Branch (if applicable)
+        if self.uses_ts:
+            self.ts_proj = nn.Sequential(
+                nn.Linear(ts_len, 128),
+                nn.BatchNorm1d(128),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(128, embed_dim),
+                nn.BatchNorm1d(embed_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            )
+        
+        # 3. Independent Feat Branch (if applicable)
+        if self.uses_feat:
+            self.feat_branch = nn.Sequential(
+                nn.Linear(feat_dim, 16),
+                nn.BatchNorm1d(16),
+                nn.ReLU(),
+                nn.Dropout(dropout)
+            )
+        
+        # 4. Fusion Head
+        fused_dim = 32 + (embed_dim if self.uses_ts else 0) + (16 if self.uses_feat else 0)
+        
         layers = []
         for h in hidden_dims:
-            layers += [nn.Linear(in_dim, h), nn.BatchNorm1d(h), nn.ReLU(), nn.Dropout(dropout)]
-            in_dim = h
-        layers.append(nn.Linear(in_dim, out_dim))
+            layers += [nn.Linear(fused_dim, h), nn.BatchNorm1d(h), nn.ReLU(), nn.Dropout(dropout)]
+            fused_dim = h
+        layers.append(nn.Linear(fused_dim, out_dim))
         self.head = nn.Sequential(*layers)
 
     def forward(self, demo, ts=None, feat=None):
-        parts = [demo]
-        if self.ts_proj is not None:
+        # Explicitly cast to float32
+        demo = demo.float()
+        d_emb = self.demo_branch(demo)
+        parts = [d_emb]
+        
+        if self.uses_ts and ts is not None:
+            ts = ts.float()
             parts.append(self.ts_proj(ts))
-        if feat is not None:
-            parts.append(feat)
+        
+        if self.uses_feat and feat is not None:
+            feat = feat.float()
+            parts.append(self.feat_branch(feat))
+            
         return self.head(torch.cat(parts, dim=1))
-
 
 #### ---- Preprocessing ---- ####
 class _Standardizer:
-    """Median imputation + z-scoring, fitted on the synthetic (training) data only."""
     def __init__(self, scalar=False):
         self.scalar = scalar
 
@@ -111,9 +127,7 @@ class _Standardizer:
         x = np.where(np.isnan(x), self.median, x)
         return ((x - self.mean) / self.std).astype(np.float32)
 
-
 def _to_frame(demo, columns=demographic_columns):
-    """Demographics as a DataFrame restricted to `columns`."""
     if not isinstance(demo, pd.DataFrame):
         demo = np.asarray(demo, dtype=object)
         if demo.shape[1] == len(ptbxl_demographic_columns):
@@ -127,21 +141,11 @@ def _to_frame(demo, columns=demographic_columns):
         raise ValueError(f"Demographics are missing columns: {missing}")
     return demo[columns].reset_index(drop=True)
 
-
 def _numeric(df):
     return df.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=np.float64)
 
-
 #### ---- Attacks ---- ####
 class AttributeInferenceAttack:
-    """
-    Base AIA. Subclasses set which modalities are used.
-
-    sensitive_col: one of `columns` (or its index), removed from the inputs.
-    task: "classification" (categorical attr, e.g. sex) or "regression" (continuous attr, e.g. age).
-    val_size: fraction of the synthetic data held out for early stopping; 0 trains on all of it
-              and early-stops on the training loss.
-    """
     uses_ts = False
     uses_feat = False
     name = "base"
@@ -149,7 +153,7 @@ class AttributeInferenceAttack:
     columns = demographic_columns
 
     def __init__(self, sensitive_col, task="classification", embed_dim=32,
-                 hidden_dims=(64, 32), dropout=0.2, lr=1e-3, weight_decay=1e-4, batch_size=256,
+                 hidden_dims=(128, 64, 32), dropout=0.3, lr=1e-3, weight_decay=1e-4, batch_size=256,
                  epochs=200, patience=20, val_size=0.2, seed=0, device=None, verbose=True):
         if task not in ("classification", "regression"):
             raise ValueError(f"Unknown task: {task}")
@@ -168,7 +172,6 @@ class AttributeInferenceAttack:
         self.device = device or get_device()
         self.verbose = verbose
 
-    # -- input handling --
     def _split_demo(self, demo):
         df = _to_frame(demo, self.columns)
         target = self.sensitive_col
@@ -180,9 +183,9 @@ class AttributeInferenceAttack:
 
     def _check_inputs(self, ts, feat):
         if self.uses_ts and ts is None:
-            raise ValueError(f"{self.name} {self.kind} requires the time series.")
+            raise ValueError(f"{self.name} requires time series.")
         if self.uses_feat and feat is None:
-            raise ValueError(f"{self.name} {self.kind} requires the time series features.")
+            raise ValueError(f"{self.name} requires features.")
 
     def _prepare(self, demo, ts, feat, fit):
         self._check_inputs(ts, feat)
@@ -209,7 +212,6 @@ class AttributeInferenceAttack:
             if fit:
                 self.classes_ = np.array(sorted(pd.Series(y).dropna().unique(), key=str))
             lookup = {c: i for i, c in enumerate(self.classes_)}
-            # Labels unseen in the synthetic data map to -1 and can never be predicted correctly.
             return np.array([lookup.get(v, -1) for v in y], dtype=np.int64)
         y = pd.to_numeric(pd.Series(y), errors="coerce").to_numpy(dtype=np.float64)
         if fit:
@@ -220,7 +222,6 @@ class AttributeInferenceAttack:
     def _to_tensors(self, inputs, idx=None):
         return {k: torch.as_tensor(v if idx is None else v[idx], device=self.device) for k, v in inputs.items()}
 
-    # -- training --
     def _concat_demo(self, demo, extra):
         if isinstance(demo, pd.DataFrame) or isinstance(extra, pd.DataFrame):
             frames = []
@@ -228,35 +229,33 @@ class AttributeInferenceAttack:
                 frames.append(part.reset_index(drop=True) if isinstance(part, pd.DataFrame) else pd.DataFrame(part))
             return pd.concat(frames, ignore_index=True)
         demo, extra = np.asarray(demo), np.asarray(extra)
-        if demo.shape[1] != extra.shape[1]:
-            raise ValueError(f"Holdout demographics have {extra.shape[1]} columns; synthetic has {demo.shape[1]}.")
         return np.concatenate([demo, extra], axis=0)
 
     def _with_holdout(self, demo, ts, feat, holdout_demo, holdout_ts, holdout_feat):
-        """Append auxiliary holdout records. Modalities the attack cannot use are left out."""
         if holdout_demo is None:
-            self.n_holdout_ = 0
             return demo, ts, feat
-        if self.uses_ts and holdout_ts is None:
-            raise ValueError(f"{self.name} {self.kind} requires holdout time series.")
-        if self.uses_feat and holdout_feat is None:
-            raise ValueError(f"{self.name} {self.kind} requires holdout time series features.")
-        if self.uses_ts and len(holdout_ts) != len(holdout_demo):
-            raise ValueError("Holdout time series and demographics have different lengths.")
-        if self.uses_feat and len(holdout_feat) != len(holdout_demo):
-            raise ValueError("Holdout features and demographics have different lengths.")
         demo = self._concat_demo(demo, holdout_demo)
         if self.uses_ts:
             ts = np.concatenate([np.asarray(ts), np.asarray(holdout_ts)], axis=0)
         if self.uses_feat:
             feat = np.concatenate([np.asarray(feat), np.asarray(holdout_feat)], axis=0)
-        self.n_holdout_ = len(holdout_demo)
+        return demo, ts, feat
+
+    def _shuffle_rows(self, demo, ts, feat):
+        n = len(demo)
+        perm = np.random.default_rng(self.seed).permutation(n)
+        if isinstance(demo, pd.DataFrame):
+            demo = demo.iloc[perm].reset_index(drop=True)
+        else:
+            demo = np.asarray(demo)[perm]
+        if self.uses_ts: ts = np.asarray(ts)[perm]
+        if self.uses_feat: feat = np.asarray(feat)[perm]
         return demo, ts, feat
 
     def fit(self, demo, ts=None, feat=None, holdout_demo=None, holdout_ts=None, holdout_feat=None):
-        """Train on the synthetic release plus holdout records, when holdout demographics are given."""
         set_seed(self.seed)
         demo, ts, feat = self._with_holdout(demo, ts, feat, holdout_demo, holdout_ts, holdout_feat)
+        demo, ts, feat = self._shuffle_rows(demo, ts, feat)
         inputs, y_raw = self._prepare(demo, ts, feat, fit=True)
         y = self._encode_target(y_raw, fit=True)
         valid = (y >= 0) if self.task == "classification" else ~np.isnan(y)
@@ -266,8 +265,7 @@ class AttributeInferenceAttack:
 
         if self.val_size > 0:
             stratify = y[idx] if self.task == "classification" and np.bincount(y[idx]).min() >= 2 else None
-            train_idx, val_idx = train_test_split(idx, test_size=self.val_size, random_state=self.seed,
-                                                  stratify=stratify)
+            train_idx, val_idx = train_test_split(idx, test_size=self.val_size, random_state=self.seed, stratify=stratify)
         else:
             train_idx = val_idx = idx
 
@@ -297,8 +295,7 @@ class AttributeInferenceAttack:
             perm = torch.randperm(n_train, device=self.device)
             for start in range(0, n_train, self.batch_size):
                 batch = perm[start:start + self.batch_size]
-                if len(batch) < 2:  # BatchNorm needs > 1 sample
-                    continue
+                if len(batch) < 2: continue
                 optimizer.zero_grad()
                 out = self.model(**{k: v[batch] for k, v in x_train.items()})
                 loss = loss_fn(out, y_train[batch])
@@ -313,16 +310,11 @@ class AttributeInferenceAttack:
                 best_state = {k: v.detach().clone() for k, v in self.model.state_dict().items()}
             else:
                 wait += 1
-                if wait >= self.patience:
-                    break
+                if wait >= self.patience: break
 
         self.model.load_state_dict(best_state)
-        self.best_val_loss = best_loss
-        if self.verbose:
-            print(f"[{self.name} {self.kind}] stopped at epoch {epoch + 1}, best val loss {best_loss:.4f}")
         return self
 
-    # -- inference --
     @torch.no_grad()
     def _forward(self, demo, ts, feat):
         inputs, y_raw = self._prepare(demo, ts, feat, fit=False)
@@ -332,21 +324,7 @@ class AttributeInferenceAttack:
         outs = [self.model(**{k: v[i:i + 4096] for k, v in x.items()}) for i in range(0, n, 4096)]
         return torch.cat(outs).cpu().numpy(), y_raw
 
-    def predict_proba(self, demo, ts=None, feat=None):
-        if self.task != "classification":
-            raise ValueError("predict_proba is only available for classification.")
-        logits, _ = self._forward(demo, ts, feat)
-        return torch.softmax(torch.as_tensor(logits), dim=1).numpy()
-
-    def predict(self, demo, ts=None, feat=None):
-        """Infer the sensitive attribute of target records (their sensitive column is ignored)."""
-        out, _ = self._forward(demo, ts, feat)
-        if self.task == "classification":
-            return self.classes_[out.argmax(axis=1)]
-        return out[:, 0] * self.y_std + self.y_mean
-
     def evaluate(self, demo, ts=None, feat=None):
-        """Attack performance on target records whose true sensitive attribute is known."""
         out, y_raw = self._forward(demo, ts, feat)
         y = self._encode_target(y_raw, fit=False)
 
@@ -363,11 +341,8 @@ class AttributeInferenceAttack:
             }
             seen = y >= 0
             try:
-                if len(self.classes_) == 2:
-                    metrics["auc"] = roc_auc_score(y[seen], proba[seen, 1])
-                else:
-                    metrics["auc"] = roc_auc_score(y[seen], proba[seen], multi_class="ovr",
-                                                   labels=np.arange(len(self.classes_)))
+                if len(self.classes_) == 2: metrics["auc"] = roc_auc_score(y[seen], proba[seen, 1])
+                else: metrics["auc"] = roc_auc_score(y[seen], proba[seen], multi_class="ovr", labels=np.arange(len(self.classes_)))
             except ValueError:
                 metrics["auc"] = float("nan")
         else:
@@ -384,113 +359,13 @@ class AttributeInferenceAttack:
         return {k: float(v) for k, v in metrics.items()}
 
     def fit_evaluate(self, synthetic, target, holdout=None):
-        """synthetic / target / holdout: dicts with keys "demo", "ts", "feat"."""
         holdout = holdout or {}
         self.fit(synthetic["demo"], synthetic.get("ts"), synthetic.get("feat"),
                  holdout.get("demo"), holdout.get("ts"), holdout.get("feat"))
         return self.evaluate(target["demo"], target.get("ts"), target.get("feat"))
 
-
-class TabularAIA(AttributeInferenceAttack):
-    """Demographics from the synthetic release and the holdout set."""
-    name = "tabular"
-
-
-class BlackboxAIA(AttributeInferenceAttack):
-    """Demographics plus the projected time series, from the synthetic release and the holdout set."""
-    name = "blackbox"
-    uses_ts = True
-
-
-class GreyboxAIA(AttributeInferenceAttack):
-    """Demographics, projected time series, and time series features, from the synthetic release and the holdout set."""
-    name = "greybox"
-    uses_ts = True
-    uses_feat = True
-
+class TabularAIA(AttributeInferenceAttack): name = "tabular"
+class BlackboxAIA(AttributeInferenceAttack): name = "blackbox"; uses_ts = True
+class GreyboxAIA(AttributeInferenceAttack): name = "greybox"; uses_ts = True; uses_feat = True
 
 attacks = {"tabular": TabularAIA, "blackbox": BlackboxAIA, "greybox": GreyboxAIA}
-
-
-#### ---- CLI ---- ####
-def load_array(path):
-    if path is None:
-        return None
-    path = Path(path)
-    if path.suffix == ".npy":
-        return np.load(path, allow_pickle=True)
-    if path.suffix == ".csv":
-        return pd.read_csv(path)
-    if path.suffix in (".pkl", ".pickle"):
-        with open(path, "rb") as f:
-            obj = pickle.load(f)
-        return obj if isinstance(obj, (pd.DataFrame, np.ndarray)) else np.asarray(obj, dtype=object)
-    raise ValueError(f"Unsupported file type: {path}")
-
-
-def add_common_args(parser, attack_names, default_output):
-    parser.add_argument("--synthetic-demo", required=True)
-    parser.add_argument("--synthetic-ts")
-    parser.add_argument("--synthetic-feat")
-    parser.add_argument("--target-demo", required=True)
-    parser.add_argument("--target-ts")
-    parser.add_argument("--target-feat")
-    parser.add_argument("--holdout-demo")
-    parser.add_argument("--holdout-ts")
-    parser.add_argument("--holdout-feat")
-    parser.add_argument("--attacks", nargs="+", choices=attack_names, default=attack_names)
-    parser.add_argument("--embed-dim", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--patience", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--seeds", type=int, nargs="+", default=[0])
-    parser.add_argument("--output", default=default_output)
-
-
-def run_attacks(args, attack_classes, **attack_kwargs):
-    """Fit/evaluate each selected attack over all seeds and save the results as JSON."""
-    synthetic = {"demo": load_array(args.synthetic_demo), "ts": load_array(args.synthetic_ts),
-                 "feat": load_array(args.synthetic_feat)}
-    target = {"demo": load_array(args.target_demo), "ts": load_array(args.target_ts),
-              "feat": load_array(args.target_feat)}
-    holdout = {"demo": load_array(args.holdout_demo), "ts": load_array(args.holdout_ts),
-               "feat": load_array(args.holdout_feat)}
-    print(f"Device: {get_device()}")
-
-    results = {}
-    for attack_name in args.attacks:
-        runs = []
-        for seed in args.seeds:
-            attack = attack_classes[attack_name](
-                embed_dim=args.embed_dim, epochs=args.epochs, patience=args.patience,
-                batch_size=args.batch_size, lr=args.lr, seed=seed, **attack_kwargs,
-            )
-            runs.append(attack.fit_evaluate(synthetic, target, holdout))
-            print(f"[{attack_name} {attack.kind}] seed {seed}: {runs[-1]}")
-        results[attack_name] = {
-            "runs": runs,
-            "mean": {k: float(np.mean([r[k] for r in runs])) for k in runs[0]},
-            "std": {k: float(np.std([r[k] for r in runs])) for k in runs[0]},
-        }
-
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w") as f:
-        json.dump({"args": vars(args), "results": results}, f, indent=2)
-    print(f"Saved results to {output}")
-    return results
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Attribute inference attacks on synthetic ECG data.")
-    add_common_args(parser, list(attacks), "results/aia_results.json")
-    parser.add_argument("--sensitive-col", required=True, choices=demographic_columns,
-                        help="Sensitive attribute to infer.")
-    parser.add_argument("--task", choices=["classification", "regression"], default="classification")
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    run_attacks(args, attacks, sensitive_col=args.sensitive_col, task=args.task)

@@ -140,6 +140,7 @@ def get_landmarks(signals, sr):
         med_rt = int(np.median(rt_dists)) if rt_dists else int(0.30 * sr) # Default 300ms
         
         # 2. R-Centric Triplet Matching & Imputation
+        n_samples = len(signal)
         valid_beats = []
         for idx, r in enumerate(r_peaks):
             p = closest_before(r, p_onsets)
@@ -157,8 +158,14 @@ def get_landmarks(signals, sr):
             if t is None or (t - r) > max_rt_samples:
                 if is_last: continue # Drop if it's the boundary beat
                 t = r + med_rt
+
+            p = int(np.clip(p, 0, n_samples - 1))
+            r = int(np.clip(r, 0, n_samples - 1))
+            t = int(np.clip(t, 0, n_samples - 1))
+            if not (p <= r <= t):
+                continue
                 
-            valid_beats.append((int(p), int(r), int(t)))
+            valid_beats.append((p, r, t))
             
         if not valid_beats:
             continue
@@ -173,28 +180,53 @@ def get_landmarks(signals, sr):
         padded[i, :len(beats)] = np.asarray(beats, dtype=int)
     return padded
 
-def align_ecg(signals, landmarks, points_per_beat=100):
+def align_ecg(signals, landmarks, points_per_beat=100, max_beats=None):
     """
     Preprocesses ECG signals by anchoring P-onset, R-peak, and T-offset to a continuous
     phase domain, imputing missing anchors, and padding to a global maximum beat count.
     
     Parameters:
     - signals: list of 1D numpy arrays (the raw ECG signals)
-    - sr: int, sampling rate
+    - landmarks: P/R/T indices on the original axis, shape (n_signals, max_beats, 3)
     - points_per_beat: int, resolution of the resampled phase grid per cardiac cycle
+    - max_beats: optional fixed beat budget for the shared phase grid. When set, every
+      curve is resampled onto ``max_beats * points_per_beat`` points so later batches
+      can match an earlier alignment (e.g. FPCA fit). Signals with more beats are
+      truncated; signals with fewer beats are zero-padded as before.
     """
     processed_data = []
     beat_counts = []
     
     for signal, landmark in zip(signals, landmarks):
+        signal = np.asarray(signal, dtype=np.float64).reshape(-1)
+        n_samples = len(signal)
+        landmark = np.asarray(landmark, dtype=int)
         landmark = landmark[landmark[:, 1] >= 0]
         if len(landmark) == 0:
             continue
+        if max_beats is not None and len(landmark) > max_beats:
+            landmark = landmark[:max_beats]
+
+        # Clamp P/R/T into the signal and keep only ordered beats.
+        cleaned = []
+        for p, r, t in landmark:
+            p = int(np.clip(p, 0, n_samples - 1))
+            r = int(np.clip(r, 0, n_samples - 1))
+            t = int(np.clip(t, 0, n_samples - 1))
+            if p <= r <= t:
+                cleaned.append((p, r, t))
+        if not cleaned:
+            continue
+        landmark = np.asarray(cleaned, dtype=int)
 
         # 3. Phase Projection Setup
-        start_idx = landmark[0][0]
-        end_idx = landmark[-1][2]
+        start_idx = int(landmark[0][0])
+        end_idx = int(landmark[-1][2])
+        if end_idx < start_idx:
+            continue
         trimmed_signal = signal[start_idx:end_idx + 1]
+        if len(trimmed_signal) == 0:
+            continue
         
         known_indices = []
         known_phases = []
@@ -206,6 +238,19 @@ def align_ecg(signals, landmarks, points_per_beat=100):
             known_indices.extend([p_rel, r_rel, t_rel])
             # Phase mapping: P -> 0, R -> pi, T -> 2pi
             known_phases.extend([i * 2*np.pi, i * 2*np.pi + np.pi, i * 2*np.pi + 2*np.pi])
+
+        known_indices = np.asarray(known_indices, dtype=np.float64)
+        known_phases = np.asarray(known_phases, dtype=np.float64)
+        order = np.argsort(known_indices)
+        known_indices = known_indices[order]
+        known_phases = known_phases[order]
+        # Drop duplicate sample anchors so np.interp gets strictly increasing xp.
+        keep = np.ones(len(known_indices), dtype=bool)
+        keep[1:] = np.diff(known_indices) > 0
+        known_indices = known_indices[keep]
+        known_phases = known_phases[keep]
+        if len(known_indices) < 2:
+            continue
             
         # 4. Create continuous phase axis for the trimmed signal
         all_indices = np.arange(len(trimmed_signal))
@@ -216,7 +261,10 @@ def align_ecg(signals, landmarks, points_per_beat=100):
         beat_counts.append(len(landmark))
         
     # 5. Global Shared Grid Alignment with Zero Padding
-    max_beats = max(beat_counts)
+    if not beat_counts:
+        raise ValueError("align_ecg received no signals with valid landmarks.")
+    if max_beats is None:
+        max_beats = max(beat_counts)
     total_points = max_beats * points_per_beat
     
     # Global phase grid from 0 to max_beats * 2pi
@@ -224,6 +272,9 @@ def align_ecg(signals, landmarks, points_per_beat=100):
     
     resampled_data = []
     for continuous_phase, trimmed_signal in processed_data:
+        if len(continuous_phase) == 0 or len(trimmed_signal) == 0:
+            resampled_data.append(np.zeros(total_points, dtype=np.float64))
+            continue
         # Interpolate the signal onto the common grid.
         # `right=0.0` automatically pads the signal with 0 (isoelectric line)
         # for phase values that exceed this specific signal's duration.
@@ -236,6 +287,129 @@ def align_ecg(signals, landmarks, points_per_beat=100):
     fd = FDataGrid(data_matrix=resampled_data, grid_points=normalized_grid)
     
     return fd
+
+
+def reverse_align_ecg(processed_signals, landmarks, points_per_beat=100, original_length=1000):
+    """
+    Invert ``align_ecg``: map phase-aligned curves back onto the original time axis.
+
+    Each heartbeat on the aligned grid is warped back to its original P/R/T sample
+    indices. Samples before the first P-onset, after the last T-offset, and in any
+    gaps between consecutive beats are filled by linear interpolation (zeros outside
+    the landmark span when no edge sample is available).
+
+    Parameters
+    ----------
+    processed_signals : array-like or FDataGrid
+        Aligned curves of shape ``(n_signals, n_aligned)`` (or an ``FDataGrid`` whose
+        ``data_matrix`` has that leading shape). ``n_aligned`` must equal
+        ``max_beats * points_per_beat`` from the forward alignment.
+    landmarks : array-like, shape ``(n_signals, max_beats, 3)``
+        Same P-onset / R-peak / T-offset indices (on the original axis) that were
+        passed to ``align_ecg``. Invalid beats are marked with R < 0.
+    points_per_beat : int
+        Must match the value used in ``align_ecg``.
+    original_length : int
+        Length of the restored traces (1000 for PTB-XL at 100 Hz).
+
+    Returns
+    -------
+    restored : ndarray, shape ``(n_signals, original_length)``
+    """
+    if isinstance(processed_signals, FDataGrid):
+        curves = np.asarray(processed_signals.data_matrix, dtype=np.float64)
+    else:
+        curves = np.asarray(processed_signals, dtype=np.float64)
+    if curves.ndim == 3:
+        curves = curves.reshape(curves.shape[0], -1)
+    elif curves.ndim == 1:
+        curves = curves[None, :]
+    if curves.ndim != 2:
+        raise ValueError(f"processed_signals must be 1D or 2D, got shape {curves.shape}")
+
+    landmarks = np.asarray(landmarks)
+    if landmarks.ndim != 3 or landmarks.shape[-1] != 3:
+        raise ValueError(
+            f"landmarks must have shape (n_signals, max_beats, 3), got {landmarks.shape}"
+        )
+    if len(curves) != len(landmarks):
+        raise ValueError(
+            f"processed_signals ({len(curves)}) and landmarks ({len(landmarks)}) length differ"
+        )
+
+    n_aligned = curves.shape[1]
+    if n_aligned % points_per_beat != 0:
+        raise ValueError(
+            f"aligned length {n_aligned} is not divisible by points_per_beat={points_per_beat}"
+        )
+    max_beats = n_aligned // points_per_beat
+    common_phase_grid = np.linspace(0.0, max_beats * 2.0 * np.pi, n_aligned)
+
+    restored = np.zeros((len(curves), original_length), dtype=np.float64)
+
+    for i, (curve, landmark) in enumerate(zip(curves, landmarks)):
+        beats = landmark[landmark[:, 1] >= 0]
+        if len(beats) == 0:
+            continue
+
+        # Phase -> original time using the same P/R/T anchors as align_ecg.
+        known_phases = []
+        known_times = []
+        for b, (p, r, t) in enumerate(beats):
+            known_phases.extend([b * 2.0 * np.pi, b * 2.0 * np.pi + np.pi, b * 2.0 * np.pi + 2.0 * np.pi])
+            known_times.extend([float(p), float(r), float(t)])
+        known_phases = np.asarray(known_phases, dtype=np.float64)
+        known_times = np.asarray(known_times, dtype=np.float64)
+        # Consecutive T / next-P share a phase; nudge so interp is well-defined.
+        for k in range(1, len(known_phases)):
+            if known_phases[k] <= known_phases[k - 1]:
+                known_phases[k] = known_phases[k - 1] + 1e-12
+
+        n_beats = len(beats)
+        content = common_phase_grid <= (n_beats * 2.0 * np.pi + 1e-12)
+        phases = common_phase_grid[content]
+        values = curve[content]
+        orig_times = np.interp(phases, known_phases, known_times)
+
+        order = np.argsort(orig_times, kind="mergesort")
+        orig_times = orig_times[order]
+        values = values[order]
+        # Collapse samples that land on the same original index.
+        uniq_t, inv = np.unique(np.round(orig_times, decimals=8), return_inverse=True)
+        uniq_v = np.zeros(len(uniq_t), dtype=np.float64)
+        counts = np.zeros(len(uniq_t), dtype=np.float64)
+        np.add.at(uniq_v, inv, values)
+        np.add.at(counts, inv, 1.0)
+        uniq_v /= counts
+
+        start_idx = int(beats[0, 0])
+        end_idx = int(beats[-1, 2])
+        start_idx = max(0, min(start_idx, original_length - 1))
+        end_idx = max(0, min(end_idx, original_length - 1))
+        if end_idx < start_idx:
+            continue
+
+        target = np.arange(start_idx, end_idx + 1, dtype=np.float64)
+        restored[i, start_idx : end_idx + 1] = np.interp(target, uniq_t, uniq_v)
+
+        # Gaps between T of beat b and P of beat b+1: re-interpolate on the
+        # original axis so the join is smooth even when the forward map collapsed them.
+        for b in range(n_beats - 1):
+            left = int(beats[b, 2])
+            right = int(beats[b + 1, 0])
+            if right - left <= 1:
+                continue
+            left = max(0, min(left, original_length - 1))
+            right = max(0, min(right, original_length - 1))
+            gap = np.arange(left, right + 1)
+            restored[i, left : right + 1] = np.interp(
+                gap.astype(np.float64),
+                np.array([float(left), float(right)]),
+                np.array([restored[i, left], restored[i, right]]),
+            )
+
+    return restored
+
 
 def extract_ecg_sliding_windows(signals, landmarks, window_beats=8, points_per_window=1000):
     """

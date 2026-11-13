@@ -20,8 +20,8 @@ def tune_umap(X):
     trustworthiness should be at least 0.85
     """
     ## Determine mn_neighbors_grid and min_dist_grid
-    n_neighbors_grid = [15, 30, 50]
-    min_dist_grid = [0, 0.1, 0.5]
+    n_neighbors_grid = [50]
+    min_dist_grid = [0.5]
     
     best_score = -1.0
     best_reducer = None

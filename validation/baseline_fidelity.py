@@ -31,6 +31,10 @@ if __name__ == "__main__":
     # real_aligned_fft_scores, real_aligned_fft_basis = fft(real_fd.data_matrix.squeeze(), k=10)
     # real_aligned_wavelet_scores, real_aligned_wavelet_basis = wavelet(real_fd.data_matrix.squeeze(), [(22.5, 45.0, (11.25, 22.5), (5.6, 11.25), (2.8, 5.6))])
 
+    # Result Path
+    result_path = Path("images/fidelity_val/")
+    result_path.mkdir(parents=True, exist_ok=True)
+
     scenarios = get_distributional_scenarios() + get_morphology_scenarios() + get_temporal_scenarios()
     result_tracking = {}
     for scenario in scenarios:
@@ -55,7 +59,7 @@ if __name__ == "__main__":
             #### ------------ Evaluation ------------ ####
             ## Baseline: Raw unaligned Data
             raw_unaligned_data_wasserstein_score = wasserstein(real_data, flaw_data)
-            raw_unlaligned_data_mahalanobis_score = sample_wise_mahalanobis(real_data, flaw_data)
+            raw_unlaligned_data_mahalanobis_score = centroid_mahalanobis_score(real_data, flaw_data)
             raw_unaligned_data_autocorrelation_score = autocorrelation_score(real_data, flaw_data)
             raw_unaligned_precision, raw_unaligned_recall = precision_recall(real_data, flaw_data)
 
@@ -63,12 +67,12 @@ if __name__ == "__main__":
             # raw_aligned_precision, raw_aligned_recall = precision_recall(real_fd.data_matrix.squeeze(), flaw_fd.data_matrix.squeeze())
 
             ## Baseline Transformation on Unaligned Data: PCA, FFT, Wavelet
-            unaligned_pca_wasserstein_score = wasserstein(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_fft_wasserstein_score = wasserstein(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_wavelet_wasserstein_score = wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
-            unaligned_pca_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
-            unaligned_fft_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
-            unaligned_wavelet_mahalanobis_score = sample_wise_mahalanobis(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
+            unaligned_pca_wasserstein_score = standardized_wasserstein(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
+            unaligned_fft_wasserstein_score = standardized_wasserstein(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
+            unaligned_wavelet_wasserstein_score = standardized_wasserstein(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
+            unaligned_pca_mahalanobis_score = centroid_mahalanobis_score(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
+            unaligned_fft_mahalanobis_score = centroid_mahalanobis_score(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
+            unaligned_wavelet_mahalanobis_score = centroid_mahalanobis_score(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)
             unaligned_pca_precision, unaligned_pca_recall = precision_recall(real_unaligned_pca_scores, flaw_unaligned_pca_scores)
             unaligned_fft_precision, unaligned_fft_recall = precision_recall(real_unaligned_fft_scores, flaw_unaligned_fft_scores)
             unaligned_wavelet_precision, unaligned_wavelet_recall = precision_recall(real_unaligned_wavelet_scores, flaw_unaligned_wavelet_scores)

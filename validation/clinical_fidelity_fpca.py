@@ -4,10 +4,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from skfda import FDataGrid
-from transformation.fda.fpca import fpca_with_param, basis_smoothing_hyperparameter_tuning, basis_smoothing_with_lambda, to_fd
+from transformation.fda.fpca import (
+    fpca_with_param, 
+    basis_smoothing_hyperparameter_tuning, 
+    basis_smoothing_with_lambda, 
+    to_fd,
+    fpca_hyperparameter_tuning
+)
 from transformation.nonlinear.diffusion_map import DenseDiffusionMap
 from transformation.nonlinear.umap import tune_umap
-from scenario_engineering.dataset_creation import get_morphology_scenarios, get_temporal_scenarios,get_distributional_scenarios, get_flaw_scales
+from scenario_engineering.dataset_creation import (
+    get_morphology_scenarios, 
+    get_temporal_scenarios,
+    get_distributional_scenarios, 
+    get_flaw_scales
+)
 from metrics.fidelity import *
 
 if __name__ == "__main__":
@@ -32,9 +43,9 @@ if __name__ == "__main__":
         n_timepoints, n_channel, _ = real_fd.data_matrix.shape
         n_basis = int(n_timepoints / 2)
         domain_range = (0, 1)
-        n_components = 10
         lambda_ = basis_smoothing_hyperparameter_tuning(real_fd, n_basis, domain_range)
         real_fd_smooth, _, _, _ = basis_smoothing_with_lambda(real_fd, lambda_, n_basis, domain_range)
+        n_components = fpca_hyperparameter_tuning(real_fd_smooth)
         real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(real_fd_smooth, n_components)
         real_fd_grid = real_fpca_.components_.grid_points[0]
         grids[feature] = real_fd_grid
@@ -83,16 +94,16 @@ if __name__ == "__main__":
 
                 #### ------------ Evaluation ------------ ####
                 ## FPC Score: Wasserstein Distance, Mahalanobis Distance
-                fpca_wasserstein_score = wasserstein(real_feature_scores[feature], flaw_channel_scores)
-                fpca_mahalanobis_score = sample_wise_mahalanobis(real_feature_scores[feature], flaw_channel_scores)
+                fpca_wasserstein_score = standardized_wasserstein(real_feature_scores[feature], flaw_channel_scores)
+                fpca_mahalanobis_score = centroid_mahalanobis_score(real_feature_scores[feature], flaw_channel_scores)
 
                 # Diffusion Map: JS Divergence, MMD, Spectral Distance
                 dmap_js_divergence = grid_js_divergence(dmap_embeddings[feature], flaw_channel_dmap)
-                dmap_mahalanobis_score = sample_wise_mahalanobis(dmap_embeddings[feature], flaw_channel_dmap)
+                dmap_mahalanobis_score = centroid_mahalanobis_score(dmap_embeddings[feature], flaw_channel_dmap)
 
                 # UMAP: JS Divergence, MMD, Spectral Distance
                 umap_js_divergence = grid_js_divergence(umap_embeddings[feature], flaw_channel_umap)
-                umap_mahalanobis_score = sample_wise_mahalanobis(umap_embeddings[feature], flaw_channel_umap)
+                umap_mahalanobis_score = centroid_mahalanobis_score(umap_embeddings[feature], flaw_channel_umap)
 
                 # Precision, Recall
                 precision, recall = precision_recall(real_feature_scores[feature], flaw_channel_scores)

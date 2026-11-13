@@ -167,7 +167,7 @@ def landmark_registration(fd, landmarks, locations=None):
     warping_ = landmark_elastic_registration_warping(fd=fd, landmarks=landmarks, location=locations)
     return fd_aligned, warping_
 
-def fpca_hyperparameter_tuning(fd, threshold=0.9):
+def fpca_hyperparameter_tuning(fd, threshold=0.85):
     """
     Determine optimal number of components using the elbow method, then run FPCA with it
     Args:
@@ -182,7 +182,7 @@ def fpca_hyperparameter_tuning(fd, threshold=0.9):
     # fd = FDataGrid(data_matrix=data_matrix)
 
     # Find optimal number of components with elbow method
-    max_components = 20
+    max_components = 100 if fd.data_matrix.shape[1] > 100 else fd.data_matrix.shape[1] - 1
     fpca_ = FPCA(n_components=max_components)
     fpca_.fit(fd)
     var_ratio = fpca_.explained_variance_ratio_

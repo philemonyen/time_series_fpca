@@ -1,10 +1,11 @@
 import numpy as np
+from scipy.stats import chi2
 from scipy.linalg import sqrtm
 from sklearn.neighbors import NearestNeighbors
-from scipy.spatial.distance import pdist, squareform, jensenshannon
+from scipy.spatial.distance import jensenshannon
 from scipy.linalg import eigh
 from statsmodels.tsa.stattools import acf
-from scipy.spatial.distance import euclidean, cdist
+from scipy.spatial.distance import cdist
 from sklearn.neighbors import NearestNeighbors
 
 ### Temporal Metrics
@@ -60,20 +61,6 @@ def autocorrelation_score(real_data, synthetic_data, max_lag=24):
     
     return acs_score
 
-def sample_wise_warping_l2(real_warping_funcs, synth_warping_funcs):
-    """
-    Calculates the sample-wise temporal fidelity using the L2 norm on warping functions.
-    Assumes functions are discretized on identical time grids.
-    """
-    # Calculate pairwise L2 (Euclidean) distances across the discretized function arrays
-    distances = cdist(synth_warping_funcs, real_warping_funcs, metric='euclidean')
-    
-    # Extract the distance to the nearest real warping function for each synthetic sample
-    nearest_neighbor_distances = np.min(distances, axis=1)
-    
-    # Return the expected temporal precision
-    return np.mean(nearest_neighbor_distances)
-
 def _as_2d_samples(X):
     X = np.asarray(X, dtype=float)
     if X.ndim == 1:
@@ -82,67 +69,93 @@ def _as_2d_samples(X):
         return X.reshape(X.shape[0], -1)
     return X
 
-
-# Spatial Metrics
-def sample_wise_mahalanobis(real_fpc_scores, synth_fpc_scores):
+def centroid_mahalanobis_score(real_fpc_scores, synth_fpc_scores):
     """
-    Mean nearest-neighbor Mahalanobis distance from synthetic to real samples.
-
-    Mathematically the same as cdist(..., metric='mahalanobis') + min over real
-    neighbors. SciPy's Mahalanobis kernel is O(N^2 D^2) per pair; whitening
-    first makes the search Euclidean, O(N^2 D), which is required for raw ECG.
-    Rank-deficient covariances are handled by dropping near-zero eigenvalues,
-    matching np.linalg.pinv.
+    Normalized Mahalanobis distance [0, 1] from synthetic samples to the real distribution centroid.
+    A score near 1.0 indicates perfect alignment with the real center; < 0.05 indicates severe outliers.
     """
     real = _as_2d_samples(real_fpc_scores)
     synth = _as_2d_samples(synth_fpc_scores)
 
+    real_mean = np.mean(real, axis=0, keepdims=True)
     cov_matrix = np.atleast_2d(np.cov(real, rowvar=False))
+    
     eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
     eigenvalues = np.maximum(eigenvalues, 0.0)
     cutoff = 1e-12 * (eigenvalues[-1] if eigenvalues[-1] > 0 else 1.0)
     supported = eigenvalues > cutoff
+    
     if not np.any(supported):
         return 0.0
+        
+    df = np.sum(supported) # Degrees of freedom for Chi-Square
     scale = 1.0 / np.sqrt(eigenvalues[supported])
     whitener = eigenvectors[:, supported] * scale
 
-    nn = NearestNeighbors(n_neighbors=1, metric="euclidean", algorithm="brute")
-    nn.fit(real @ whitener)
-    nearest_neighbor_distances, _ = nn.kneighbors(synth @ whitener, return_distance=True)
-    return float(np.mean(nearest_neighbor_distances))
+    # Calculate distance to the real centroid in whitened space
+    synth_whitened = synth @ whitener
+    centroid_whitened = real_mean @ whitener
+    
+    distances = np.linalg.norm(synth_whitened - centroid_whitened, axis=1)
+    squared_distances = distances ** 2
+    
+    # Convert to p-values via Chi-Square CDF
+    p_values = 1.0 - chi2.cdf(squared_distances, df=df)
+    
+    return float(np.mean(p_values))
 
+# Wasserstein
 def wasserstein(X, Y, eps=1e-6):
     """
-    Computes the Multidimensional Fréchet Distance (2-Wasserstein distance
-    assuming Gaussian distributions) between two matrices.
+    Computes the Multidimensional Fréchet Distance (2-Wasserstein distance)
+    between two matrices.
     """
     X = np.asarray(X, dtype=float)
     Y = np.asarray(Y, dtype=float)
-    if X.ndim == 1:
-        X = X.reshape(-1, 1)
-    if Y.ndim == 1:
-        Y = Y.reshape(-1, 1)
+    if X.ndim == 1: X = X.reshape(-1, 1)
+    if Y.ndim == 1: Y = Y.reshape(-1, 1)
 
     mu_X, mu_Y = np.mean(X, axis=0), np.mean(Y, axis=0)
-    # np.cov returns a scalar when there is a single feature; keep a 2D matrix.
     sigma_X = np.atleast_2d(np.cov(X, rowvar=False))
     sigma_Y = np.atleast_2d(np.cov(Y, rowvar=False))
 
     diff = mu_X - mu_Y
     mean_term = diff.dot(diff)
 
-    # SciPy >= 1.16: sqrtm(..., disp=False) is deprecated, and 1x1 inputs skip
-    # the (sqrt, errest) tuple and return only the matrix.
     offset = np.eye(sigma_X.shape[0]) * eps
     covmean = sqrtm((sigma_X + offset) @ (sigma_Y + offset))
-    if isinstance(covmean, tuple):
-        covmean = covmean[0]
-    if np.iscomplexobj(covmean):
-        covmean = covmean.real
+    if isinstance(covmean, tuple): covmean = covmean[0]
+    if np.iscomplexobj(covmean): covmean = covmean.real
 
     covariance_term = np.trace(sigma_X + sigma_Y - 2 * covmean)
     return float(np.sqrt(max(mean_term + covariance_term, 0.0)))
+
+def standardized_wasserstein(real_features, synth_features):
+    """
+    Computes the Wasserstein distance in units of standard deviations.
+    The scaler is explicitly fit only on the real distribution.
+    """
+    real = np.asarray(real_features, dtype=float)
+    synth = np.asarray(synth_features, dtype=float)
+    
+    if real.ndim == 1: real = real.reshape(-1, 1)
+    if synth.ndim == 1: synth = synth.reshape(-1, 1)
+    
+    # 1. Fit scaler on Real data only (column-wise)
+    real_mean = np.mean(real, axis=0)
+    real_std = np.std(real, axis=0, ddof=1)
+    
+    # Prevent division by zero for constant features
+    real_std = np.where(real_std < 1e-8, 1.0, real_std)
+    
+    # 2. Transform Real data
+    real_standardized = (real - real_mean) / real_std
+    
+    # 3. Transform Synthetic data using Real statistics
+    synth_standardized = (synth - real_mean) / real_std
+    
+    # 4. Compute and return the distance
+    return wasserstein(real_standardized, synth_standardized)
 
 ### UMAP & Diffusion Map Metrics
 def grid_js_divergence(real_coords: np.ndarray, 

@@ -17,7 +17,6 @@ if __name__ == "__main__":
     diagnostic = "NORM"
     lead = 1
     sr = 100
-    n_components = 10
     domain_range = (0, 1)
     np.random.seed(42)
 
@@ -26,6 +25,10 @@ if __name__ == "__main__":
         real_data = pickle.load(f)
     with open(f"data/validation/real_segments.pkl", "rb") as f:
         real_segments, real_landmarks = pickle.load(f)
+    with open(f"data/validation/substitute_data.pkl", "rb") as f:
+        holdout_data = pickle.load(f)
+    with open(f"data/validation/substitute_segments.pkl", "rb") as f:
+        holdout_segments, holdout_landmarks = pickle.load(f)
 
     # Extract Warping Functions and Apply FPCA
     aligned_real_segments, real_warping_ = landmark_registration(real_segments, real_landmarks)
@@ -34,25 +37,45 @@ if __name__ == "__main__":
     smoothed_real, _, _, _ = basis_smoothing_with_lambda(real_warping_, lambda_, n_basis, domain_range)
     n_components = fpca_hyperparameter_tuning(smoothed_real)
     real_mean, real_components, real_scores, real_var_ratio, real_fpca_ = fpca_with_param(smoothed_real, n_components)
-    real_score_subset = real_scores[np.random.choice(real_scores.shape[0], size=1500, replace=False)]
-    real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
-    real_umap = tune_umap(real_scores)
+    real_score_subset = real_scores[np.random.choice(real_scores.shape[0], size=1000, replace=False)]
+    real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_score_subset)
+    real_umap = tune_umap(real_score_subset)
 
-    # Plot FPCA outcomes
-    real_mean.plot()
-    plt.title("Real Warping Mean")
-    plt.xlabel("Time")
-    plt.savefig(f"images/fidelity_val/temporal/Warping_Real_Mean.png")
-    plt.close()
-    for i, c in enumerate(real_components):
-        c.plot()
-        plt.title(f"Real Warping Component {i}")
-        plt.xlabel("Time")
-        plt.savefig(f"images/fidelity_val/temporal/Warping_Real_Component_{i}.png")
-        plt.close()
+    # Wasserstein baseline
+    aligned_holdout_segments, holdout_warping_ = landmark_registration(holdout_segments, holdout_landmarks)
+    n_basis = int(holdout_warping_.data_matrix.shape[1] / 2)
+    lambda_ = basis_smoothing_hyperparameter_tuning(holdout_warping_, n_basis, domain_range)
+    smoothed_holdout, _, _, _ = basis_smoothing_with_lambda(holdout_warping_, lambda_, n_basis, domain_range)
+    holdout_scores = real_fpca_.transform(smoothed_holdout)
+    wasserstein_baseline = wasserstein(real_scores, holdout_scores)
+    mahalanobis_baseline = centroid_mahalanobis_score(real_scores, holdout_scores)
+
+    # # Plot FPCA outcomes
+    # real_mean.plot()
+    # plt.title("Real Warping Mean")
+    # plt.xlabel("Time")
+    # plt.savefig(f"images/fidelity_val/temporal/Warping_Real_Mean.png")
+    # plt.close()
+    # for i, c in enumerate(real_components):
+    #     c.plot()
+    #     plt.title(f"Real Warping Component {i}")
+    #     plt.xlabel("Time")
+    #     plt.savefig(f"images/fidelity_val/temporal/Warping_Real_Component_{i}.png")
+    #     plt.close()
 
     scenarios = get_temporal_scenarios() + get_morphology_scenarios() + get_distributional_scenarios()
     result_tracking = {}
+    result_tracking['config'] = {
+        'lambda': lambda_,
+        'n_basis': n_basis,
+        'n_components': n_components,
+        'real_var_ratio': real_var_ratio.tolist(),
+    }
+    result_tracking['baseline'] = {
+        'wasserstein': wasserstein_baseline,
+        'mahalanobis': mahalanobis_baseline,
+    }
+
     for scenario in scenarios:
         save_path = f"images/fidelity_val/temporal/{scenario}/"
         path=Path(save_path)
@@ -87,16 +110,16 @@ if __name__ == "__main__":
             # warping_mahalanobis_score = sample_wise_mahalanobis(real_warping_.data_matrix.squeeze(), flaw_warping_.data_matrix.squeeze())
 
             # FPCA: Wasserstein Distance, Mahalanobis Distance
-            fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
-            fpca_mahalanobis_score = sample_wise_mahalanobis(real_scores, flaw_scores)
+            fpca_wasserstein_score = standardized_wasserstein(real_scores, flaw_scores)
+            fpca_mahalanobis_score = centroid_mahalanobis_score(real_scores, flaw_scores)
 
             # Diffusion Map: JS Divergence, Mahalanobis Distance
             dmap_js_divergence = grid_js_divergence(real_dmap_embedding, flaw_dmap_embedding)
-            dmap_mahalanobis_score = sample_wise_mahalanobis(real_dmap_embedding, flaw_dmap_embedding)
+            dmap_mahalanobis_score = centroid_mahalanobis_score(real_dmap_embedding, flaw_dmap_embedding)
 
             # UMAP: JS Divergence, Mahalanobis Distance
             umap_js_divergence = grid_js_divergence(real_umap_embedding, flaw_umap_embedding)
-            umap_mahalanobis_score = sample_wise_mahalanobis(real_umap_embedding, flaw_umap_embedding)
+            umap_mahalanobis_score = centroid_mahalanobis_score(real_umap_embedding, flaw_umap_embedding)
 
             #### ------------ Result Display ------------ ####
             result_tracking[scenario][key] = {}

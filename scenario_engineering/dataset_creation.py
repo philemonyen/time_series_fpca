@@ -284,12 +284,17 @@ if __name__ == "__main__":
     with open(save_path / "real_segments.pkl", "wb") as f:
         pickle.dump((real_segments, real_segment_landmarks), f)
 
-    # Substitue Unaligned and Aligned Dataset (For Privacy Evaluation)
+    # Substitue Unaligned and Aligned Dataset
     with open(save_path / "substitute_data.pkl", "wb") as f:
         pickle.dump(substitute_data, f)
     substitute_fd = align_ecg(substitute_data, substitute_landmarks)
     with open(save_path / "substitute_fd.pkl", "wb") as f:
         pickle.dump(substitute_fd, f)
+    substitute_segments, substitute_segment_landmarks = extract_ecg_sliding_windows(substitute_data, substitute_landmarks)
+    with open(save_path / "substitute_segments.pkl", "wb") as f:
+        pickle.dump((substitute_segments, substitute_segment_landmarks), f)    
+    with open(save_path / "substitute_clinical_features.pkl", "wb") as f:
+        pickle.dump(substitute_clinical_features, f)
 
     # Morphological Flawed Dataset Creation
     oversmoothing_morphology_dataset, oversmoothing_temporal_dataset, oversmoothing_clinical_dataset = oversmoothing_creation(real_data, real_landmarks, real_clinical_landmarks)

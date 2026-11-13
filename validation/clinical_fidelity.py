@@ -1,7 +1,13 @@
 import pickle
 import json
 from pathlib import Path
-from transformation.fda.mfpca import as_multivariate_functional, match_beat_length, tune_psplines, tune_n_components
+from transformation.fda.mfpca import (
+    as_multivariate_functional,
+    match_beat_length, 
+    tune_psplines,
+    tune_n_components,
+    mfpca_with_param,
+)
 from metrics.fidelity import *
 
 def get_morphology_scenarios():
@@ -34,13 +40,24 @@ if __name__ == "__main__":
         real_data = pickle.load(f)
     with open("data/validation/clinical/real_clinical_features.pkl", "rb") as f:
         real_clinical_features = pickle.load(f)
+    with open("data/validation/substitute_clinical_features.pkl", "rb") as f:
+        holdout_clinical_features = pickle.load(f)
 
     ### Global Clinical Features:Get Real Clinical Features & Run MFPCA
     smoothed_data = [tune_psplines(feature, degree=3) for feature in real_clinical_features]
 
     # MFPCA
     mfpca_data = as_multivariate_functional(smoothed_data)
-    real_scores, real_mfpca = tune_n_components(mfpca_data)
+    n_components = tune_n_components(mfpca_data)
+    print(f"Tuned {n_components} components")
+    real_mfpca = mfpca_with_param(mfpca_data, n_components)
+    real_scores = real_mfpca.transform(mfpca_data)
+
+    # Wasserstein baseline
+    smoothed_holdout_data = [tune_psplines(feature, degree=3) for feature in holdout_clinical_features]
+    holdout_scores = real_mfpca.transform(smoothed_holdout_data)
+    wasserstein_baseline = wasserstein(real_scores, holdout_scores)
+    mahalanobis_baseline = centroid_mahalanobis_score(real_scores, holdout_scores)
 
     # # Diffusion Map
     # real_dmap = DenseDiffusionMap(n_evecs=30, k=20, metric='cosine').fit(real_scores)
@@ -53,6 +70,11 @@ if __name__ == "__main__":
     ### Run Clinical Fidelity Validation on All Scenarios
     scenarios = get_morphology_scenarios() + get_temporal_scenarios() + get_distributional_scenarios()
     result_tracking = {}
+    result_tracking['baseline'] = {
+        'wasserstein': wasserstein_baseline,
+        'mahalanobis': mahalanobis_baseline,
+    }
+
     for scenario in scenarios:
         # Result save path
         save_path = f"images/fidelity_val/clinical/{scenario}/"
@@ -89,8 +111,8 @@ if __name__ == "__main__":
             #     }
 
             ## FPC Score: Wasserstein Distance, Mahalanobis Distance
-            fpca_wasserstein_score = wasserstein(real_scores, flaw_scores)
-            fpca_mahalanobis_score = sample_wise_mahalanobis(real_scores, flaw_scores)
+            fpca_wasserstein_score = standardized_wasserstein(real_scores, flaw_scores)
+            fpca_mahalanobis_score = centroid_mahalanobis_score(real_scores, flaw_scores)
             fpca_mmd = mmd(real_scores, flaw_scores)
 
             # Diffusion Map: JS Divergence, MMD, Spectral Distance

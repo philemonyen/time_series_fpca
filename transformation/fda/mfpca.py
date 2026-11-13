@@ -80,21 +80,19 @@ def as_multivariate_functional(features):
         functional.append(DenseFunctionalData(argvals, DenseValues(values)))
     return MultivariateFunctionalData(functional)
 
-def tune_n_components(multivariate_data, method="inner-product"):
-    n_components = 10
-    best_scores = None
-    best_mfpca = None
-    min_error = float('inf')
-
+def tune_n_components(multivariate_data, method="inner-product", threshold=0.9):
+    n_components = multivariate_data.n_points[0][0] - 1
     mfpca = MFPCA(n_components=n_components, method=method)
     mfpca.fit(multivariate_data)
-    scores = mfpca.transform(method="InnPro")
-    error = mean_squared_error(scores, scores)
-    if error < min_error:
-        min_error = error
-        best_scores = scores
-        best_mfpca = mfpca
+    eigenvalues = mfpca.eigenvalues
+    cumulative_variance = np.cumsum(eigenvalues)
+    n_components = int(np.searchsorted(cumulative_variance, threshold) + 1)
 
-    return best_scores, best_mfpca
+    return n_components
+
+def mfpca_with_param(multivariate_data, n_components, method="inner-product"):
+    mfpca = MFPCA(n_components=n_components, method=method)
+    mfpca.fit(multivariate_data)
+    return mfpca
 
    
